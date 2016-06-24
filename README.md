@@ -8,6 +8,8 @@ This is not an attempt to write a complete YAML parser in Fortran! It handles a 
 
 * Only block style is supported for mappings and sequences; flow style is not.
 * All scalars are left as strings; interpreting them as native data types is left to the caller. Thus, keys in the (key : value) pairs of a mapping are strings by definition.
+* Use of quotes around strings is not supported.
+* Multi-line strings are not supported.
 
 Comments (starting with #) are allowed. As per the YAML specification, indentation must consist of spaces only (no tabs!)
 

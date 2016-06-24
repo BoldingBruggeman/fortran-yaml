@@ -1,31 +1,18 @@
-module yaml
+! -----------------------------------------------------------------------------
+! This file is part of Fortran-YAML: a lightweight YAML parser written in
+! object-oriented Fortran.
+!
+! Copyright 2013-2016 Bolding & Bruggeman ApS.
+!
+! This is free software: you can redistribute it and/or modify it under
+! the terms of the GNU General Public License as published by the Free Software
+! Foundation (https://www.gnu.org/licenses/gpl.html). It is distributed in the
+! hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+! implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+! A copy of the license is provided in the COPYING file.
+! -----------------------------------------------------------------------------
 
-! This module parses a subset of YAML: http://yaml.org/
-! Only block mappings are supported; flow mappings are not, nor are
-! block or flow sequences. All scalars are left as strings; interpreting
-! them as native data types is left to the caller. Thus, keys in the
-! (key : value) pairs of a mapping are strings by definition.
-! Comments (starting with #) are allowed. As per the YAML specification,
-! indentation must consist of spaces only (no tabs!)
-!
-! For instance:
-!
-! instances:
-!   P1:
-!     model: pml/ersem/vphyt
-!     parameters:
-!       mu_max: 2.2
-!       K: 1
-!     coupling:
-!       R: pom/R6
-!
-! NB This is not an attempt to write a complete YAML parser in Fortran!
-! It handles a narrowly defined subset of YAML only. However, it IS meant
-! to only accept documents that are valid YAML - if you find that this parser
-! permits constructs that the YAML specification disallows (but not vice versa),
-! please contact the author.
-!
-! Original author(s): Jorn Bruggeman
+module yaml
 
    use yaml_types
 
