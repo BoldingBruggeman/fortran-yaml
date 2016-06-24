@@ -1,6 +1,8 @@
+# Fortran-YAML
+
 This is a lightweight [YAML](http://yaml.org) parser written in object-oriented Fortran
 
-# Features
+## Features
 
 This is not an attempt to write a complete YAML parser in Fortran! It handles a subset of YAML only, currently subject to the following limitations:
 
@@ -27,7 +29,7 @@ to only accept documents that are valid YAML. If you find that this parser
 permits constructs that the YAML specification disallows (but not vice versa),
 please contact the author.
 
-# Copyright and license
+## Copyright and license
 
 This software is copyright 2013-2016 Bolding & Bruggeman ApS.
 
@@ -37,5 +39,4 @@ Foundation](https://www.gnu.org/licenses/gpl.html).
 
 It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. A copy of the license is provided in the COPYING file at
-the root of the FABM distribution.
+PARTICULAR PURPOSE. A copy of the license is provided in the COPYING file.
