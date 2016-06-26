@@ -2,6 +2,8 @@
 ! This file is part of Fortran-YAML: a lightweight YAML parser written in
 ! object-oriented Fortran.
 !
+! Official repository: https://github.com/BoldingBruggeman/fortran-yaml
+!
 ! Copyright 2013-2016 Bolding & Bruggeman ApS.
 !
 ! This is free software: you can redistribute it and/or modify it under

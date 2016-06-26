@@ -1,10 +1,12 @@
 # Fortran-YAML
 
-This is a lightweight [YAML](http://yaml.org) parser written in object-oriented Fortran
+This is a lightweight [YAML](http://yaml.org) parser written in object-oriented Fortran.
+
+The latest source code can be found at [GitHub](https://github.com/BoldingBruggeman/fortran-yaml).
 
 ## Features
 
-This is not an attempt to write a complete YAML parser in Fortran! It handles a subset of YAML only, currently subject to the following limitations:
+This parser handles a subset of YAML only, currently subject to the following limitations:
 
 * Only block style is supported for mappings and sequences; flow style is not.
 * All scalars are left as strings; interpreting them as native data types is left to the caller. Thus, keys in the (key : value) pairs of a mapping are strings by definition.
