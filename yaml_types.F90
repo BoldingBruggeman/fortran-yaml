@@ -252,12 +252,11 @@ contains
       logical,optional,   intent(out) :: success
       logical                         :: value
 
-      value = default
-      if (present(success)) success = .true.
+      integer :: ios
 
-      read(self%string,*,err=99,end=99) value
-      return
-99    if (present(success)) success = .false.
+      value = default
+      read(self%string,*,iostat=ios) value
+      if (present(success)) success = (ios == 0)
    end function
 
    function scalar_to_integer(self,default,success) result(value)
@@ -266,12 +265,11 @@ contains
       logical,optional,   intent(out) :: success
       integer                         :: value
 
-      value = default
-      if (present(success)) success = .true.
+      integer :: ios
 
-      read(self%string,*,err=99,end=99) value
-      return
-99    if (present(success)) success = .false.
+      value = default
+      read(self%string,*,iostat=ios) value
+      if (present(success)) success = (ios == 0)
    end function
 
    function scalar_to_real(self,default,success) result(value)
@@ -280,12 +278,11 @@ contains
       logical,optional,   intent(out) :: success
       real(real_kind)                 :: value
 
-      value = default
-      if (present(success)) success = .true.
+      integer :: ios
 
-      read(self%string,*,err=99,end=99) value
-      return
-99    if (present(success)) success = .false.
+      value = default
+      read(self%string,*,iostat=ios) value
+      if (present(success)) success = (ios == 0)
    end function
 
    recursive subroutine node_set_path(self,path)
