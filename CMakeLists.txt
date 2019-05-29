@@ -22,3 +22,9 @@ add_executable(test_yaml EXCLUDE_FROM_ALL
                test_yaml.F90
               )
 target_link_libraries(test_yaml PRIVATE yaml)
+
+install(TARGETS yaml
+        EXPORT yaml-targets
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+)
