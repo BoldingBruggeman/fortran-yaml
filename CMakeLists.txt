@@ -24,7 +24,7 @@ add_executable(test_yaml EXCLUDE_FROM_ALL
 target_link_libraries(test_yaml PRIVATE yaml)
 
 install(TARGETS yaml
-        EXPORT yaml-targets
+        EXPORT yamlConfig
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
 )
