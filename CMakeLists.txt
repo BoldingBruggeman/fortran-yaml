@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
 
-if(TARGET yaml)
-    return()
-endif(TARGET yaml)
-
 # Create main project.
 project(yaml VERSION 0.1.0 LANGUAGES Fortran)
 
@@ -28,3 +24,5 @@ install(TARGETS yaml
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
 )
+
+set_property(TARGET yaml test_yaml PROPERTY FOLDER flexout)
