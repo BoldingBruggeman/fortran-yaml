@@ -19,10 +19,12 @@ add_executable(test_yaml EXCLUDE_FROM_ALL
               )
 target_link_libraries(test_yaml PRIVATE yaml)
 
+set_property(TARGET yaml test_yaml PROPERTY FOLDER yaml)
+
 install(TARGETS yaml
         EXPORT yamlConfig
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
 )
 
-set_property(TARGET yaml test_yaml PROPERTY FOLDER flexout)
+install(EXPORT yamlConfig DESTINATION cmake)
