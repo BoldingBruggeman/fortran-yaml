@@ -16,6 +16,8 @@
 
 program test_yaml
 
+   use yaml_version, only: yaml_commit_id=>git_commit_id, &
+                           yaml_branch_name=>git_branch_name
    use yaml_types
    use yaml
    use, intrinsic :: iso_fortran_env
@@ -23,6 +25,10 @@ program test_yaml
    character(error_length) :: error
    character(256) :: path
    class (type_node),pointer :: root
+
+   write(*,*)
+   write(*,*) 'YAML version:   ',yaml_commit_id,' (',yaml_branch_name,' branch)'
+   write(*,*)
 
    call get_command_argument(1, path)
    if (path=='') then
