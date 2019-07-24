@@ -388,15 +388,16 @@ contains
       end do
 
       if (.not. associated(pair)) then
-         ! Key not found - create a new key-setting pair and append to end of list
-         if (.not. associated(self%first)) then
-            ! First setting in list
-            allocate(self%first)
-            pair => self%first
+         ! Key not found - create a new key-setting pair and insert after all previously accessed settings (if any)
+         allocate(pair)
+         if (.not. associated(last_accessed)) then
+            ! No previously accesssed settings - prepend to list
+            pair%next => self%first
+            self%first => pair
          else
-            ! Look for last element in list.
-            allocate(last_accessed%next)
-            pair => last_accessed%next
+            ! Insert after all previously accessed settings
+            pair%next => last_accessed%next
+            last_accessed%next => pair
          end if
          pair%key = key
          allocate(type_value::pair%value)
