@@ -1,13 +1,17 @@
 module yaml_settings
    
-   use yaml_types, only: yaml_real_kind => real_kind, type_yaml_node => type_node, type_yaml_null => type_null, type_yaml_scalar => type_scalar, type_yaml_dictionary => type_dictionary, type_yaml_list => type_list, type_yaml_list_item => type_list_item, type_yaml_error => type_error, type_yaml_key_value_pair => type_key_value_pair
+   use yaml_types, only: yaml_real_kind => real_kind, type_yaml_node => type_node, type_yaml_null => type_null, &
+      type_yaml_scalar => type_scalar, type_yaml_dictionary => type_dictionary, type_yaml_list => type_list, &
+      type_yaml_list_item => type_list_item, type_yaml_error => type_error, type_yaml_key_value_pair => type_key_value_pair
    use yaml, only: yaml_parse => parse, yaml_error_length => error_length
 
    implicit none
 
    private
 
-   public type_settings, type_option, report_error, type_settings_create, type_real_setting_create, type_logical_setting_create, type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item, type_real_setting, type_logical_setting
+   public type_settings, type_option, report_error, type_settings_create, type_real_setting_create, type_logical_setting_create, &
+      type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item, type_real_setting, &
+      type_logical_setting
 
    integer, parameter :: rk = yaml_real_kind
 
@@ -314,7 +318,8 @@ contains
          stop 1
       end if
       write (unit,'(a)') '<?xml version="1.0" ?>'
-      write (unit,'(a,a,a)') '<element name="scenario" label="scenario" version="', version, '" namelistextension=".nml" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../core/scenario-1.0.xsd">'
+      write (unit,'(a,a,a)') '<element name="scenario" label="scenario" version="', version, '" namelistextension=".nml"&
+         & xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../core/scenario-1.0.xsd">'
       pair => self%first
       do while (associated(pair))
          call pair%value%write_schema(unit, pair%name, 2)
@@ -445,8 +450,10 @@ contains
       if (present(minimum)) setting%minimum = minimum
       if (present(maximum)) setting%maximum = maximum
       if (present(default)) then
-         if (default < setting%minimum) call report_error('Default value of setting '//setting%path//' lies below prescribed minimum.')
-         if (default > setting%maximum) call report_error('Default value of setting '//setting%path//' exceeds prescribed maximum.')
+         if (default < setting%minimum) call report_error('Default value of setting '//setting%path// &
+            ' lies below prescribed minimum.')
+         if (default > setting%maximum) call report_error('Default value of setting '//setting%path// &
+            ' exceeds prescribed maximum.')
          setting%has_default = .true.
          setting%default = default
       end if
@@ -456,7 +463,8 @@ contains
       elseif (setting%has_default) then
          setting%pvalue = setting%default
       else
-         call report_error('No value specified for setting '//setting%path//'; cannot continue because this parameter does not have a default value either.')
+         call report_error('No value specified for setting '//setting%path//'; cannot continue because&
+            & this parameter does not have a default value either.')
       end if
    end function type_real_setting_create
 
@@ -469,12 +477,15 @@ contains
       select type (backing_store_node)
       class is (type_yaml_scalar)
          self%pvalue = backing_store_node%to_real(self%pvalue, success)
-         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)//'", which cannot be interpreted as a real number.')
+         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+            '", which cannot be interpreted as a real number.')
       class default
          call report_error('Setting '//self%path//' must be a real number.')
       end select
-      if (self%pvalue < self%minimum) call report_error('Value specified for parameter '//self%path//' lies below prescribed minimum.')
-      if (self%pvalue > self%maximum) call report_error('Value specified for parameter '//self%path//' exceeds prescribed maximum.')
+      if (self%pvalue < self%minimum) call report_error('Value specified for parameter '//self%path// &
+         ' lies below prescribed minimum.')
+      if (self%pvalue > self%maximum) call report_error('Value specified for parameter '//self%path// &
+         ' exceeds prescribed maximum.')
    end subroutine
 
    function get_integer(self, name, long_name, units, default, minimum, maximum, options, description) result(value)
@@ -551,14 +562,17 @@ contains
          end do
       end if
       if (present(default)) then
-         if (default < setting%minimum) call report_error('Default value of setting '//setting%path//' lies below prescribed minimum.')
-         if (default > setting%maximum) call report_error('Default value of setting '//setting%path//' exceeds prescribed maximum.')
+         if (default < setting%minimum) call report_error('Default value of setting '//setting%path// &
+            ' lies below prescribed minimum.')
+         if (default > setting%maximum) call report_error('Default value of setting '//setting%path// &
+            ' exceeds prescribed maximum.')
          if (allocated(setting%options)) then
             found = .false.
             do ioption = 1, size(setting%options)
                if (default == setting%options(ioption)%value) found = .true.
             end do
-            if (.not.found) call report_error('Default value of setting '//setting%path//' does not correspond to any known option.')
+            if (.not.found) call report_error('Default value of setting '//setting%path// &
+               ' does not correspond to any known option.')
          end if
          setting%has_default = .true.
          setting%default = default
@@ -569,7 +583,8 @@ contains
       elseif (setting%has_default) then
          setting%pvalue = setting%default
       else
-         call report_error('No value specified for setting '//setting%path//'; cannot continue because it does not have a default value either.')
+         call report_error('No value specified for setting '//setting%path//'; cannot continue because&
+            & it does not have a default value either.')
       end if
       if (present(value)) value = setting%pvalue
    end subroutine get_integer2
@@ -599,18 +614,22 @@ contains
                end if
             end do
          end if
-         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)//'", which cannot be interpreted as an integer number.')
+         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+            '", which cannot be interpreted as an integer number.')
       class default
          call report_error('Setting '//self%path//' must be an integer number.')
       end select
-      if (self%pvalue < self%minimum) call report_error('Value specified for setting '//self%path//' lies below prescribed minimum.')
-      if (self%pvalue > self%maximum) call report_error('Value specified for setting '//self%path//' exceeds prescribed maximum.')
+      if (self%pvalue < self%minimum) call report_error('Value specified for setting '//self%path// &
+         ' lies below prescribed minimum.')
+      if (self%pvalue > self%maximum) call report_error('Value specified for setting '//self%path// &
+         ' exceeds prescribed maximum.')
       if (allocated(self%options)) then
          success = .false.
          do ioption = 1, size(self%options)
             if (self%pvalue == self%options(ioption)%value) success = .true.
          end do
-         if (.not. success) call report_error('Value specified for setting '//self%path//' does not correspond to any known option.')
+         if (.not. success) call report_error('Value specified for setting '//self%path// &
+            ' does not correspond to any known option.')
       end if
    end subroutine integer_set_data
 
@@ -671,7 +690,8 @@ contains
       elseif (setting%has_default) then
          setting%pvalue = setting%default
       else
-         call report_error('No value specified for parameter '//setting%path//'; cannot continue because this parameter does not have a default value either.')
+         call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
+            & this parameter does not have a default value either.')
       end if
       if (present(value)) value = setting%pvalue
    end function type_logical_setting_create
@@ -685,7 +705,8 @@ contains
       select type (backing_store_node)
       class is (type_yaml_scalar)
          self%pvalue = backing_store_node%to_logical(self%pvalue, success)
-         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)//'", which cannot be interpreted as logical value (true or false).')
+         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+            '", which cannot be interpreted as logical value (true or false).')
       class default
          call report_error('Setting '//self%path//' must be set to a logical value (true or false).')
       end select
@@ -751,7 +772,8 @@ contains
          if (setting%has_default) then
             setting%value = setting%default
          else
-            call report_error('No value specified for parameter '//setting%path//'; cannot continue because this parameter does not have a default value either.')
+            call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
+               & this parameter does not have a default value either.')
          end if
       end if
       if (associated(setting%pvalue) .and. .not. associated(setting%pvalue, setting%value)) then
@@ -997,7 +1019,8 @@ contains
             call pair%value%write_yaml(unit, indent + len(pair%name) + 2, comment_depth - len(pair%name) - 2, header=.false.)
          else
             ! block or null
-            if (allocated(pair%value%long_name)) write (unit, '(a,"# ",a)', advance='no') repeat(' ', comment_depth - len(pair%name) - 1), pair%value%long_name
+            if (allocated(pair%value%long_name)) write (unit, '(a,"# ",a)', advance='no') &
+               repeat(' ', comment_depth - len(pair%name) - 1), pair%value%long_name
             write (unit, *)
             if (style == 2) then
                ! block
@@ -1064,7 +1087,8 @@ contains
                if (allocated(self%options)) then
                   do ioption=1,size(self%options)
                      !if (ioption > 1) write (unit,'(", ")', advance='no')
-                     write (unit,'("# ",a,i0,": ",a)') repeat(' ', indent + 2), self%options(ioption)%value, self%options(ioption)%long_name
+                     write (unit,'("# ",a,i0,": ",a)') repeat(' ', indent + 2), self%options(ioption)%value, &
+                        self%options(ioption)%long_name
                   end do
                end if
             end select
@@ -1204,8 +1228,6 @@ contains
       class (type_real_setting), intent(in) :: self
       character(len=:),allocatable, intent(inout) :: comment
 
-      character(:), allocatable :: string
-
       if (self%minimum /= default_minimum_real) call append_string(comment, '; ', 'min=' // format_real(self%minimum))
       if (self%maximum /= default_maximum_real) call append_string(comment, '; ', 'max=' // format_real(self%maximum))
    end subroutine
@@ -1236,7 +1258,8 @@ contains
                   call append_string(comment, ', ', self%options(ioption)%key // '=' // self%options(ioption)%long_name)
                end if
             else
-               call append_string(comment, ', ', format_integer(self%options(ioption)%value) // '=' // self%options(ioption)%long_name)
+               call append_string(comment, ', ', format_integer(self%options(ioption)%value) // '=' // &
+                  self%options(ioption)%long_name)
             end if
          end do
       else
@@ -1343,7 +1366,8 @@ contains
          write (unit, '(a)') '>'
          write (unit, '(a,a)') repeat(' ', indent + 2), '<options>'
          do ioption=1, size(self%options)
-            write (unit,'(a,a,i0,a,a,a)') repeat(' ', indent + 4), '<option value="', self%options(ioption)%value, '" label="', self%options(ioption)%long_name, '"/>'
+            write (unit,'(a,a,i0,a,a,a)') repeat(' ', indent + 4), '<option value="', self%options(ioption)%value, '" label="', &
+               self%options(ioption)%long_name, '"/>'
          end do
          write (unit, '(a,a)') repeat(' ', indent + 2), '</options>'
          write (unit, '(a,a)') repeat(' ', indent), '</element>'
@@ -1359,8 +1383,10 @@ contains
 
       write (unit, '(a,a,a,a)', advance='no') repeat(' ', indent), '<element name="', name, '" type="float"'
       if (allocated(self%long_name)) write (unit, '(a,a,a)', advance='no') ' label="', self%long_name, '"'
-      if (self%minimum /= default_minimum_real) write (unit, '(a,a,a)', advance='no') ' minInclusive="', format_real(self%minimum), '"'
-      if (self%maximum /= default_maximum_real) write (unit, '(a,a,a)', advance='no') ' maxInclusive="', format_real(self%maximum), '"'
+      if (self%minimum /= default_minimum_real) &
+         write (unit, '(a,a,a)', advance='no') ' minInclusive="', format_real(self%minimum), '"'
+      if (self%maximum /= default_maximum_real) &
+         write (unit, '(a,a,a)', advance='no') ' maxInclusive="', format_real(self%maximum), '"'
       write (unit, '("/>")')
    end subroutine
 
