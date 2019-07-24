@@ -10,6 +10,7 @@ configure_file(yaml_version.F90.in yaml_version.F90)
 add_library(yaml
             ${CMAKE_CURRENT_BINARY_DIR}/yaml_version.F90
             yaml_types.F90
+            yaml_settings.F90
             yaml.F90
 )
 set_property(TARGET yaml PROPERTY Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
