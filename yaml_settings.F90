@@ -265,7 +265,7 @@ contains
                if (.not. pair%accessed) then
                   n = n + 1
                   if (n == 1) write (*,*) 'ERROR: the following setting(s) were not recognized:'
-                  write (*,*) '- ' // pair%value%path
+                  write (*,*) '- ' // trim(pair%value%path)
                else
                   call node_check(pair%value, n)
                end if
