@@ -547,7 +547,8 @@ contains
             do ioption2 = 1, size(options)
                if (options(ioption2)%value == ivalue) then
                   setting%options(ioption) = options(ioption2)
-                  if (allocated(setting%options(ioption)%key)) setting%options(ioption)%key = string_lower(setting%options(ioption)%key)
+                  if (allocated(setting%options(ioption)%key)) &
+                     setting%options(ioption)%key = string_lower(setting%options(ioption)%key)
                   ioption = ioption + 1
                   exit
                end if
