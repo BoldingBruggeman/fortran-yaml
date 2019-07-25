@@ -374,13 +374,6 @@ contains
       do while (associated(pair))
          if (pair%key == key) then
             if (pair%accessed) return
-            if (associated(last_accessed)) then
-               pair%next => last_accessed%next
-               last_accessed%next => pair
-            else
-               pair%next => self%first
-               self%first => pair
-            end if
             exit
          end if
          if (pair%accessed) last_accessed => pair
@@ -390,15 +383,6 @@ contains
       if (.not. associated(pair)) then
          ! Key not found - create a new key-setting pair and insert after all previously accessed settings (if any)
          allocate(pair)
-         if (.not. associated(last_accessed)) then
-            ! No previously accesssed settings - prepend to list
-            pair%next => self%first
-            self%first => pair
-         else
-            ! Insert after all previously accessed settings
-            pair%next => last_accessed%next
-            last_accessed%next => pair
-         end if
          pair%key = key
          allocate(type_value::pair%value)
          pair%value%parent => self
@@ -408,6 +392,13 @@ contains
 
       pair%name = name
       pair%accessed = .true.
+      if (associated(last_accessed)) then
+         pair%next => last_accessed%next
+         last_accessed%next => pair
+      else
+         pair%next => self%first
+         self%first => pair
+      end if
       end subroutine
    end function get_node
 
@@ -556,6 +547,7 @@ contains
             do ioption2 = 1, size(options)
                if (options(ioption2)%value == ivalue) then
                   setting%options(ioption) = options(ioption2)
+                  if (allocated(setting%options(ioption)%key)) setting%options(ioption)%key = string_lower(setting%options(ioption)%key)
                   ioption = ioption + 1
                   exit
                end if
@@ -596,18 +588,20 @@ contains
 
       logical :: success
       integer :: ioption
+      character(len=:), allocatable :: strvalue
 
       select type (backing_store_node)
       class is (type_yaml_scalar)
          self%pvalue = backing_store_node%to_integer(self%pvalue, success)
          if (.not. success .and. allocated(self%options)) then
+            strvalue = string_lower(trim(backing_store_node%string))
             do ioption = 1, size(self%options)
-               if (backing_store_node%string == self%options(ioption)%long_name) then
+               if (strvalue == string_lower(self%options(ioption)%long_name)) then
                   ! Value matches long name of option
                   success = .true.
                elseif (allocated(self%options(ioption)%key)) then
                   ! Option has a key; check if value matches that
-                  if (backing_store_node%string == self%options(ioption)%key) success = .true.
+                  if (strvalue == self%options(ioption)%key) success = .true.
                end if
                if (success) then
                   self%pvalue = self%options(ioption)%value
@@ -1253,7 +1247,7 @@ contains
       if (allocated(self%options)) then
          do ioption = 1, size(self%options)
             if (allocated(self%options(ioption)%key)) then
-               if (self%options(ioption)%key == self%options(ioption)%long_name) then
+               if (self%options(ioption)%key == string_lower(self%options(ioption)%long_name)) then
                   call append_string(comment, ', ', self%options(ioption)%key)
                else
                   call append_string(comment, ', ', self%options(ioption)%key // '=' // self%options(ioption)%long_name)
