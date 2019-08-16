@@ -1,5 +1,5 @@
 module yaml_settings
-   
+
    use yaml_types, only: yaml_real_kind => real_kind, type_yaml_node => type_node, type_yaml_null => type_null, &
       type_yaml_scalar => type_scalar, type_yaml_dictionary => type_dictionary, type_yaml_list => type_list, &
       type_yaml_list_item => type_list_item, type_yaml_error => type_error, type_yaml_key_value_pair => type_key_value_pair
@@ -9,9 +9,10 @@ module yaml_settings
 
    private
 
-   public type_settings, type_option, report_error, type_settings_create, type_real_setting_create, type_logical_setting_create, &
-      type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item, type_real_setting, &
-      type_logical_setting
+   public type_settings, type_option, option, report_error, type_settings_create
+   public type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item
+   public type_real_setting, type_logical_setting, type_integer_setting, type_string_setting
+   public type_real_setting_create, type_logical_setting_create, type_integer_setting_create, type_string_setting_create
 
    integer, parameter :: rk = yaml_real_kind
 
@@ -93,6 +94,7 @@ module yaml_settings
       procedure :: get_integer2
       procedure :: get_logical2
       procedure :: get_string2
+      procedure :: get_real
       procedure :: get_integer
       procedure :: get_logical
       procedure :: get_string
@@ -155,6 +157,7 @@ module yaml_settings
 
    type, extends(type_scalar_setting) :: type_real_setting
       real(rk), pointer :: pvalue => null()
+      real(rk) :: value
       real(rk) :: default = 0.0_rk
       real(rk) :: minimum = default_minimum_real
       real(rk) :: maximum = default_maximum_real
@@ -185,6 +188,15 @@ module yaml_settings
    end type
 
 contains
+
+   type (type_option) function option(value, long_name, key)
+      integer,                    intent(in) :: value
+      character(len=*),           intent(in) :: long_name
+      character(len=*), optional, intent(in) :: key
+      option%value = value
+      option%long_name = long_name
+      if (present(key)) option%key = key
+   end function option
 
    recursive subroutine value_write_schema(self, unit, name, indent)
       class (type_value), intent(in) :: self
@@ -402,6 +414,24 @@ contains
       end subroutine
    end function get_node
 
+   function get_real(self, name, long_name, units, default, minimum, maximum, description) result(value)
+      class (type_settings),           intent(inout) :: self
+      real(rk), target                               :: target
+      character(len=*),                intent(in)    :: name
+      character(len=*),                intent(in)    :: long_name
+      character(len=*),                intent(in)    :: units
+      real(rk),        optional,       intent(in)    :: default
+      real(rk),        optional,       intent(in)    :: minimum
+      real(rk),        optional,       intent(in)    :: maximum
+      character(len=*),optional,       intent(in)    :: description
+      real(rk) :: value
+
+      class (type_real_setting),  pointer :: setting
+
+      setting => type_real_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, description)
+      value = setting%pvalue
+   end function get_real
+
    subroutine get_real2(self, target, name, long_name, units, default, minimum, maximum, description)
       class (type_settings),intent(inout) :: self
       real(rk), target                               :: target
@@ -415,18 +445,18 @@ contains
 
       class (type_real_setting),  pointer :: setting
 
-      setting => type_real_setting_create(self%get_node(name), target, long_name, units, default, minimum, maximum, description)
+      setting => type_real_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, description, target=target)
    end subroutine
-      
-   function type_real_setting_create(node, target, long_name, units, default, minimum, maximum, description) result(setting)
+
+   function type_real_setting_create(node, long_name, units, default, minimum, maximum, description, target) result(setting)
       class (type_settings_node),      intent(inout) :: node
-      real(rk), target                               :: target
       character(len=*),                intent(in)    :: long_name
       character(len=*),                intent(in)    :: units
       real(rk),        optional,       intent(in)    :: default
       real(rk),        optional,       intent(in)    :: minimum
       real(rk),        optional,       intent(in)    :: maximum
       character(len=*),optional,       intent(in)    :: description
+      real(rk), target, optional                     :: target
       class (type_real_setting),  pointer :: setting
 
       select type (value => node%value)
@@ -436,7 +466,11 @@ contains
          allocate(setting)
          call node%set_value(setting)
       end select
-      setting%pvalue => target
+      if (present(target)) then
+         setting%pvalue => target
+      else
+         setting%pvalue => setting%value
+      end if
       setting%long_name = long_name
       if (units /= '') setting%units = units
       if (present(minimum)) setting%minimum = minimum
@@ -490,11 +524,15 @@ contains
       integer,           optional, intent(in)    :: maximum
       type (type_option),optional, intent(in)    :: options(:)
       character(len=*),  optional, intent(in)    :: description
-      integer :: dummy, value
-      call get_integer2(self, dummy, name, long_name, units, default, minimum, maximum, options, description, value)
+      integer :: value
+
+      class (type_integer_setting), pointer :: setting
+
+      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, options, description)
+      value = setting%pvalue
    end function
 
-   subroutine get_integer2(self, target, name, long_name, units, default, minimum, maximum, options, description, value)
+   subroutine get_integer2(self, target, name, long_name, units, default, minimum, maximum, options, description)
       class (type_settings),       intent(inout) :: self
       integer, target                            :: target
       character(len=*),            intent(in)    :: name
@@ -505,14 +543,26 @@ contains
       integer,           optional, intent(in)    :: maximum
       type (type_option),optional, intent(in)    :: options(:)
       character(len=*),  optional, intent(in)    :: description
-      integer,           optional, intent(out)   :: value
 
-      class (type_settings_node),   pointer :: node
       class (type_integer_setting), pointer :: setting
+
+      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, options, description, target=target)
+   end subroutine
+
+   function type_integer_setting_create(node, long_name, units, default, minimum, maximum, options, description, target) result(setting)
+      class (type_settings_node),  intent(inout) :: node
+      character(len=*),            intent(in)    :: long_name
+      character(len=*),  optional, intent(in)    :: units
+      integer,           optional, intent(in)    :: default
+      integer,           optional, intent(in)    :: minimum
+      integer,           optional, intent(in)    :: maximum
+      type (type_option),optional, intent(in)    :: options(:)
+      character(len=*),  optional, intent(in)    :: description
+      integer, target,   optional                :: target
+      class (type_integer_setting), pointer :: setting
+
       integer                               :: ioption, ioption2, ivalue
       logical                               :: found
-
-      node => self%get_node(name)
 
       select type (value => node%value)
       class is (type_integer_setting)
@@ -522,10 +572,10 @@ contains
          call node%set_value(setting)
       end select
 
-      if (present(value)) then
-         setting%pvalue => setting%value
-      else
+      if (present(target)) then
          setting%pvalue => target
+      else
+         setting%pvalue => setting%value
       end if
       setting%long_name = long_name
       if (present(units)) setting%units = units
@@ -580,8 +630,7 @@ contains
          call report_error('No value specified for setting '//setting%path//'; cannot continue because&
             & it does not have a default value either.')
       end if
-      if (present(value)) value = setting%pvalue
-   end subroutine get_integer2
+   end function type_integer_setting_create
 
    subroutine integer_set_data(self, backing_store_node)
       class (type_integer_setting), intent(inout) :: self
@@ -635,32 +684,33 @@ contains
       character(len=*),         intent(in)    :: long_name
       logical, optional,        intent(in)    :: default
       character(len=*),optional,intent(in)    :: description
-      logical :: dummy, value
-      call get_logical2(self, dummy, name, long_name, default, description, value)
+      logical :: value
+
+      class (type_logical_setting), pointer :: setting
+
+      setting => type_logical_setting_create(self%get_node(name), long_name, default, description)
+      value = setting%pvalue
    end function get_logical
 
-   subroutine get_logical2(self, target, name, long_name, default, description, value)
+   subroutine get_logical2(self, target, name, long_name, default, description)
       class (type_settings),    intent(inout) :: self
       logical, target                         :: target
       character(len=*),         intent(in)    :: name
       character(len=*),         intent(in)    :: long_name
       logical, optional,        intent(in)    :: default
       character(len=*),optional,intent(in)    :: description
-      logical, optional,        intent(inout) :: value
 
       class (type_logical_setting), pointer :: setting
 
-      setting => type_logical_setting_create(self%get_node(name), target, long_name, default, description, value)
+      setting => type_logical_setting_create(self%get_node(name), long_name, default, description, target=target)
    end subroutine get_logical2
 
-   function type_logical_setting_create(node, target, long_name, default, description, value) result(setting)
+   function type_logical_setting_create(node, long_name, default, description, target) result(setting)
       class (type_settings_node),intent(inout) :: node
-      logical, target                          :: target
       character(len=*),          intent(in)    :: long_name
       logical, optional,         intent(in)    :: default
       character(len=*),optional, intent(in)    :: description
-      logical, optional,         intent(inout) :: value
-
+      logical, target, optional                :: target
       class (type_logical_setting), pointer :: setting
 
       select type (value => node%value)
@@ -670,10 +720,10 @@ contains
          allocate(setting)
          call node%set_value(setting)
       end select
-      if (present(value)) then
-         setting%pvalue => setting%value
-      else
+      if (present(target)) then
          setting%pvalue => target
+      else
+         setting%pvalue => setting%value
       end if
       setting%long_name = long_name
       if (present(default)) then
@@ -689,7 +739,6 @@ contains
          call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
             & this parameter does not have a default value either.')
       end if
-      if (present(value)) value = setting%pvalue
    end function type_logical_setting_create
    
    subroutine logical_set_data(self, backing_store_node)
@@ -716,12 +765,14 @@ contains
       character(len=*), optional, intent(in)    :: default
       character(len=*), optional, intent(in)    :: description
       character(len=:), allocatable :: value
-      character(len=0) :: dummy
 
-      call get_string2(self, dummy, name, long_name, units, default, description, value)
+      class (type_string_setting), pointer :: setting
+
+      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description)
+      value = setting%pvalue
    end function
 
-   subroutine get_string2(self, target, name, long_name, units, default, description, value)
+   subroutine get_string2(self, target, name, long_name, units, default, description)
       class (type_settings),           intent(inout) :: self
       character(len=*), target                       :: target
       character(len=*),                intent(in)    :: name
@@ -729,12 +780,20 @@ contains
       character(len=*), optional,      intent(in)    :: units
       character(len=*), optional,      intent(in)    :: default
       character(len=*), optional,      intent(in)    :: description
-      character(len=:), allocatable, optional        :: value
 
-      class (type_settings_node),  pointer :: node
       class (type_string_setting), pointer :: setting
 
-      node => self%get_node(name)
+      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description, target=target)
+   end subroutine get_string2
+
+   function type_string_setting_create(node, long_name, units, default, description, target) result(setting)
+      class (type_settings_node),      intent(inout) :: node
+      character(len=*),                intent(in)    :: long_name
+      character(len=*), optional,      intent(in)    :: units
+      character(len=*), optional,      intent(in)    :: default
+      character(len=*), optional,      intent(in)    :: description
+      character(len=*), target, optional             :: target
+      class (type_string_setting), pointer :: setting
 
       select type (value => node%value)
       class is (type_string_setting)
@@ -743,10 +802,10 @@ contains
          allocate(setting)
          call node%set_value(setting)
       end select
-      if (present(value)) then
-         setting%pvalue => null()
-      else
+      if (present(target)) then
          setting%pvalue => target
+      else
+         setting%pvalue => null()
       end if
       setting%long_name = long_name
       if (present(units)) setting%units = units
@@ -778,8 +837,7 @@ contains
       else
          setting%pvalue => setting%value
       end if
-      if (present(value)) value = setting%pvalue
-   end subroutine get_string2
+   end function type_string_setting_create
 
    recursive function create_child(self) result(child)
       class (type_value), intent(in) :: self
