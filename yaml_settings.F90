@@ -445,7 +445,8 @@ contains
 
       class (type_real_setting),  pointer :: setting
 
-      setting => type_real_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, description, target=target)
+      setting => type_real_setting_create(self%get_node(name), long_name, units, &
+                                          default, minimum, maximum, description, target=target)
    end subroutine
 
    function type_real_setting_create(node, long_name, units, default, minimum, maximum, description, target) result(setting)
@@ -546,10 +547,12 @@ contains
 
       class (type_integer_setting), pointer :: setting
 
-      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, options, description, target=target)
+      setting => type_integer_setting_create(self%get_node(name), long_name, units, &
+                                             default, minimum, maximum, options, description, target=target)
    end subroutine
 
-   function type_integer_setting_create(node, long_name, units, default, minimum, maximum, options, description, target) result(setting)
+   function type_integer_setting_create(node, long_name, units, default, &
+                                        minimum, maximum, options, description, target) result(setting)
       class (type_settings_node),  intent(inout) :: node
       character(len=*),            intent(in)    :: long_name
       character(len=*),  optional, intent(in)    :: units
