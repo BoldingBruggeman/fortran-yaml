@@ -345,7 +345,7 @@ contains
       character(len=*),      intent(in)            :: name
       logical, optional,     intent(in)            :: treat_as_path
       integer, optional,     intent(out)           :: istart
-      type (type_key_value_pair), pointer          :: pair
+      class (type_key_value_pair), pointer         :: pair
 
       integer                        :: istart_
       class (type_settings), pointer :: settings
