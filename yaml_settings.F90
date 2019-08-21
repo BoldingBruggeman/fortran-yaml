@@ -21,6 +21,9 @@ module yaml_settings
    integer, parameter :: default_minimum_integer = -huge(1)
    integer, parameter :: default_maximum_integer = huge(1)
 
+   integer, parameter :: yaml_indent = 3
+   integer, parameter :: xml_indent = 3
+
    type type_value
       character(len=:), allocatable :: long_name
       character(len=:), allocatable :: description
@@ -223,19 +226,19 @@ contains
 
    integer function value_get_yaml_style(self)
       class (type_value), intent(in) :: self
-      value_get_yaml_style = 1
+      value_get_yaml_style = -1
    end function
 
    integer function settings_get_yaml_style(self)
       class (type_settings), intent(in) :: self
-      settings_get_yaml_style = 2
-      if (.not. associated(self%first)) settings_get_yaml_style = 0
+      settings_get_yaml_style = yaml_indent
+      if (.not. associated(self%first)) settings_get_yaml_style = -2
    end function
 
    integer function list_get_yaml_style(self)
       class (type_list), intent(in) :: self
-      list_get_yaml_style = 2
-      if (.not. associated(self%first)) list_get_yaml_style = 0
+      list_get_yaml_style = 0
+      if (.not. associated(self%first)) list_get_yaml_style = -2
    end function
 
    subroutine load(self, path, unit)
@@ -334,7 +337,7 @@ contains
          & xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../core/scenario-1.0.xsd">'
       pair => self%first
       do while (associated(pair))
-         call pair%value%write_schema(unit, pair%name, 2)
+         call pair%value%write_schema(unit, pair%name, xml_indent)
          pair => pair%next
       end do
       write (unit,'(a)') '</element>'
@@ -1056,7 +1059,7 @@ contains
       logical,               intent(in) :: header
 
       type (type_key_value_pair), pointer  :: pair
-      integer :: style
+      integer :: block_indent
 
       !if (header) then
       !   write (unit, '()')
@@ -1069,8 +1072,8 @@ contains
       do while (associated(pair))
          if (.not. associated(pair, self%first)) write (unit, '(a)', advance='no') repeat(' ', indent)
          write (unit, '(a,":")', advance='no') pair%name
-         style = pair%value%get_yaml_style()
-         if (style == 1) then
+         block_indent = pair%value%get_yaml_style()
+         if (block_indent == -1) then
             ! flow
             write (unit, '(" ")', advance='no')
             call pair%value%write_yaml(unit, indent + len(pair%name) + 2, comment_depth - len(pair%name) - 2, header=.false.)
@@ -1079,10 +1082,10 @@ contains
             if (allocated(pair%value%long_name)) write (unit, '(a,"# ",a)', advance='no') &
                repeat(' ', comment_depth - len(pair%name) - 1), pair%value%long_name
             write (unit, *)
-            if (style == 2) then
+            if (block_indent >= 0) then
                ! block
-               write (unit, '(a)', advance='no') repeat(' ', indent + 2)
-               call pair%value%write_yaml(unit, indent + 2, comment_depth - 2, header=.false.)
+               write (unit, '(a)', advance='no') repeat(' ', indent + block_indent)
+               call pair%value%write_yaml(unit, indent + block_indent, comment_depth - block_indent, header=.false.)
             end if
          end if
          pair => pair%next
@@ -1107,24 +1110,25 @@ contains
          class is (type_settings)
             pair => self%first
             do while (associated(pair))
-               call write_header(pair%value, pair%name, indent + 2)
+               call write_header(pair%value, pair%name, indent + yaml_indent)
                pair => pair%next
             end do
          class is (type_scalar_setting)
-            if (allocated(self%description)) write (unit,'("# ",a,a)') repeat(' ', indent + 2), self%description
+            if (allocated(self%description)) write (unit,'("# ",a,a)') repeat(' ', indent + yaml_indent), self%description
             select type (self)
             class is (type_real_setting)
                !write (unit,'(" (",a,")")', advance='no') node%units
                written = .false.
                if (self%minimum /= default_minimum_real) then
-                  write (unit,'("# ",a,a,a)', advance='no') repeat(' ', indent + 2), 'minimum: ', format_real(self%minimum)
+                  write (unit,'("# ",a,a,a)', advance='no') repeat(' ', indent + yaml_indent), 'minimum: ', &
+                     format_real(self%minimum)
                   written = .true.
                end if
                if (self%maximum /= default_maximum_real) then
                   if (written) then
                      write (unit,'(", ")', advance='no')
                   else
-                     write (unit,'("# ",a)', advance='no') repeat(' ', indent + 2)
+                     write (unit,'("# ",a)', advance='no') repeat(' ', indent + yaml_indent)
                   end if
                   write (unit,'(a,a)', advance='no') 'maximum: ', format_real(self%maximum)
                   written = .true.
@@ -1133,7 +1137,7 @@ contains
                   if (written) then
                      write (unit,'(", ")', advance='no')
                   else
-                     write (unit,'("# ",a)', advance='no') repeat(' ', indent + 2)
+                     write (unit,'("# ",a)', advance='no') repeat(' ', indent + yaml_indent)
                   end if
                   write (unit,'(a,a)', advance='no') 'default: ', format_real(self%default)
                   written = .true.
@@ -1144,7 +1148,7 @@ contains
                if (allocated(self%options)) then
                   do ioption=1,size(self%options)
                      !if (ioption > 1) write (unit,'(", ")', advance='no')
-                     write (unit,'("# ",a,i0,": ",a)') repeat(' ', indent + 2), self%options(ioption)%value, &
+                     write (unit,'("# ",a,i0,": ",a)') repeat(' ', indent + yaml_indent), self%options(ioption)%value, &
                         self%options(ioption)%long_name
                   end do
                end if
@@ -1222,7 +1226,7 @@ contains
       maxdepth = len(name) + 1
       pair => self%first
       do while (associated(pair))
-         maxdepth = max(maxdepth, pair%value%get_maximum_depth(pair%name) + 2)
+         maxdepth = max(maxdepth, pair%value%get_maximum_depth(pair%name) + yaml_indent)
          pair => pair%next
       end do
    end function settings_get_maximum_depth
@@ -1396,7 +1400,7 @@ contains
       write (unit, '(a)') '>'
       pair => self%first
       do while (associated(pair))
-         call pair%value%write_schema(unit, pair%name, indent + 2)
+         call pair%value%write_schema(unit, pair%name, indent + xml_indent)
          pair => pair%next
       end do
       write (unit, '(a,a)') repeat(' ', indent), '</element>'
@@ -1421,12 +1425,12 @@ contains
       if (self%maximum /= default_maximum_integer) write (unit, '(a,i0,a)', advance='no') ' maxInclusive="', self%maximum, '"'
       if (allocated(self%options)) then
          write (unit, '(a)') '>'
-         write (unit, '(a,a)') repeat(' ', indent + 2), '<options>'
+         write (unit, '(a,a)') repeat(' ', indent + xml_indent), '<options>'
          do ioption=1, size(self%options)
-            write (unit,'(a,a,i0,a,a,a)') repeat(' ', indent + 4), '<option value="', self%options(ioption)%value, '" label="', &
+            write (unit,'(a,a,i0,a,a,a)') repeat(' ', indent + 2 * xml_indent), '<option value="', self%options(ioption)%value, '" label="', &
                self%options(ioption)%long_name, '"/>'
          end do
-         write (unit, '(a,a)') repeat(' ', indent + 2), '</options>'
+         write (unit, '(a,a)') repeat(' ', indent + xml_indent), '</options>'
          write (unit, '(a,a)') repeat(' ', indent), '</element>'
       else
          write (unit, '("/>")')
