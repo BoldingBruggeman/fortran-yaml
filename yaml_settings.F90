@@ -1427,8 +1427,8 @@ contains
          write (unit, '(a)') '>'
          write (unit, '(a,a)') repeat(' ', indent + xml_indent), '<options>'
          do ioption=1, size(self%options)
-            write (unit,'(a,a,i0,a,a,a)') repeat(' ', indent + 2 * xml_indent), '<option value="', self%options(ioption)%value, '" label="', &
-               self%options(ioption)%long_name, '"/>'
+            write (unit,'(a,a,i0,a,a,a)') repeat(' ', indent + 2 * xml_indent), '<option value="', self%options(ioption)%value, &
+               '" label="', self%options(ioption)%long_name, '"/>'
          end do
          write (unit, '(a,a)') repeat(' ', indent + xml_indent), '</options>'
          write (unit, '(a,a)') repeat(' ', indent), '</element>'
