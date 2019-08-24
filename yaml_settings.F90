@@ -24,17 +24,25 @@ module yaml_settings
    integer, parameter :: yaml_indent = 3
    integer, parameter :: xml_indent = 3
 
+   integer, parameter, public :: display_inherit  = -1
+   integer, parameter, public :: display_minimum  = 0
+   integer, parameter, public :: display_normal   = 1
+   integer, parameter, public :: display_advanced = 2
+   integer, parameter, public :: display_maximum  = 3
+
    type type_value
-      character(len=:), allocatable :: long_name
-      character(len=:), allocatable :: description
+      character(len=:), allocatable   :: long_name
+      character(len=:), allocatable   :: description
       class (type_yaml_node), pointer :: backing_store_node => null()
-      character(len=:), allocatable  :: path
-      class (type_value), pointer :: parent => null()
+      character(len=:), allocatable   :: path
+      class (type_value), pointer     :: parent => null()
+      integer                         :: display = display_inherit
    contains
-      procedure :: write_schema => value_write_schema
-      procedure :: write_yaml => value_write_yaml
+      procedure :: write_schema      => value_write_schema
+      procedure :: write_yaml        => value_write_yaml
       procedure :: get_maximum_depth => value_get_maximum_depth
-      procedure :: get_yaml_style => value_get_yaml_style
+      procedure :: is_visible        => value_is_visible
+      procedure :: get_yaml_style    => value_get_yaml_style
       procedure :: create_child
    end type type_value
 
@@ -89,6 +97,7 @@ module yaml_settings
       procedure :: write_schema => settings_write_schema
       procedure :: write_yaml => settings_write_yaml
       procedure :: get_maximum_depth => settings_get_maximum_depth
+      procedure :: is_visible => settings_is_visible
       procedure :: get_yaml_style => settings_get_yaml_style
       procedure :: load
       procedure :: save
@@ -110,22 +119,29 @@ module yaml_settings
       procedure :: finalize
    end type type_settings
 
-   type, abstract, extends(type_value) :: type_scalar_setting
+   type, abstract, extends(type_value) :: type_scalar_value
       character(:),allocatable :: units
       logical                  :: has_default = .false.
    contains
-      procedure (setting_as_string), deferred :: as_string
-      procedure :: write_yaml => setting_write_yaml
-      procedure :: get_comment => setting_get_comment
-      procedure :: get_maximum_depth => setting_get_maximum_depth
-   end type type_scalar_setting
+      procedure (scalar_value_as_string),  deferred :: as_string
+      procedure (scalar_value_at_default), deferred :: at_default
+      procedure :: write_yaml        => scalar_value_write_yaml
+      procedure :: get_comment       => scalar_value_get_comment
+      procedure :: get_maximum_depth => scalar_value_get_maximum_depth
+      procedure :: is_visible        => scalar_value_is_visible
+   end type type_scalar_value
 
    abstract interface
-      function setting_as_string(self, use_default) result(string)
-         import type_scalar_setting
-         class (type_scalar_setting), intent(in) :: self
-         logical,                     intent(in) :: use_default
-         character(len=:), allocatable :: string
+      function scalar_value_as_string(self, use_default) result(string)
+         import type_scalar_value
+         class (type_scalar_value), intent(in) :: self
+         logical,                   intent(in) :: use_default
+         character(len=:), allocatable         :: string
+      end function
+
+      logical function scalar_value_at_default(self)
+         import type_scalar_value
+         class (type_scalar_value), intent(in) :: self
       end function
    end interface
 
@@ -145,7 +161,7 @@ module yaml_settings
       procedure :: get_yaml_style => list_get_yaml_style
    end type
 
-   type, extends(type_scalar_setting) :: type_integer_setting
+   type, extends(type_scalar_value) :: type_integer_setting
       integer, pointer :: pvalue => null()
       integer :: value
       integer :: default = 0
@@ -156,9 +172,10 @@ module yaml_settings
       procedure :: as_string    => integer_as_string
       procedure :: write_schema => integer_write_schema
       procedure :: get_comment  => integer_get_comment
+      procedure :: at_default   => integer_at_default
    end type
 
-   type, extends(type_scalar_setting) :: type_real_setting
+   type, extends(type_scalar_value) :: type_real_setting
       real(rk), pointer :: pvalue => null()
       real(rk) :: value
       real(rk) :: default = 0.0_rk
@@ -169,9 +186,10 @@ module yaml_settings
       procedure :: as_string    => real_as_string
       procedure :: write_schema => real_write_schema
       procedure :: get_comment  => real_get_comment
+      procedure :: at_default   => real_at_default
    end type
 
-   type, extends(type_scalar_setting) :: type_logical_setting
+   type, extends(type_scalar_value) :: type_logical_setting
       logical, pointer :: pvalue => null()
       logical :: value
       logical :: default = .true.
@@ -179,15 +197,17 @@ module yaml_settings
       procedure, nopass :: create => type_logical_setting_create
       procedure :: as_string    => logical_as_string
       procedure :: write_schema => logical_write_schema
+      procedure :: at_default   => logical_at_default
    end type
 
-   type, extends(type_scalar_setting) :: type_string_setting
+   type, extends(type_scalar_value) :: type_string_setting
       character(:), pointer :: pvalue => null()
       character(:), allocatable :: value
       character(:), allocatable :: default
    contains
       procedure :: as_string    => string_as_string
       procedure :: write_schema => string_write_schema
+      procedure :: at_default   => string_at_default
    end type
 
 contains
@@ -203,40 +223,62 @@ contains
 
    recursive subroutine value_write_schema(self, unit, name, indent)
       class (type_value), intent(in) :: self
-      integer,              intent(in) :: unit, indent
-      character(len=*),     intent(in) :: name
+      integer,            intent(in) :: unit, indent
+      character(len=*),   intent(in) :: name
       stop 'value_write_schema not overridden'
    end subroutine
 
-   recursive subroutine value_write_yaml(self, unit, indent, comment_depth, header)
+   recursive subroutine value_write_yaml(self, unit, indent, comment_depth, header, display)
       class (type_value),  intent(in) :: self
-      integer,               intent(in) :: unit
-      integer,               intent(in) :: indent
-      integer,               intent(in) :: comment_depth
-      logical,               intent(in) :: header
+      integer,             intent(in) :: unit
+      integer,             intent(in) :: indent
+      integer,             intent(in) :: comment_depth
+      logical,             intent(in) :: header
+      integer,             intent(in) :: display
       stop 'value_write_yaml not overridden'
    end subroutine
 
-   recursive function value_get_maximum_depth(self, name) result(maxdepth)
+   recursive function value_get_maximum_depth(self, name, display) result(maxdepth)
       class (type_value), intent(in) :: self
-      character(len=*),     intent(in) :: name
-      integer                          :: maxdepth
+      character(len=*),   intent(in) :: name
+      integer,            intent(in) :: display
+      integer                        :: maxdepth
       stop 'value_get_maximum_depth not overridden'
    end function
 
-   integer function value_get_yaml_style(self)
+   recursive function value_is_visible(self, display) result(visible)
       class (type_value), intent(in) :: self
+      integer,            intent(in) :: display
+      logical                        :: visible
+      visible = display >= self%display
+   end function
+
+   integer function value_get_yaml_style(self, display)
+      class (type_value), intent(in) :: self
+      integer,            intent(in) :: display
       value_get_yaml_style = -1
    end function
 
-   integer function settings_get_yaml_style(self)
+   integer function settings_get_yaml_style(self, display)
       class (type_settings), intent(in) :: self
+      integer,               intent(in) :: display
+
+      type (type_key_value_pair), pointer :: pair
+
       settings_get_yaml_style = yaml_indent
-      if (.not. associated(self%first)) settings_get_yaml_style = -2
+      pair => self%first
+      do while (associated(pair))
+         if (pair%value%is_visible(display)) return
+         pair => pair%next
+      end do
+
+      ! No children are visible - this is an empty block indicated by -2
+      settings_get_yaml_style = -2
    end function
 
-   integer function list_get_yaml_style(self)
+   integer function list_get_yaml_style(self, display)
       class (type_list), intent(in) :: self
+      integer,           intent(in) :: display
       list_get_yaml_style = 0
       if (.not. associated(self%first)) list_get_yaml_style = -2
    end function
@@ -301,12 +343,13 @@ contains
 
    end function check_all_used
 
-   subroutine save(self, path, unit)
+   subroutine save(self, path, unit, display)
       class (type_settings), intent(in) :: self
       character(len=*),      intent(in) :: path
       integer,               intent(in) :: unit
-
+      integer, optional,     intent(in) :: display
       integer :: ios
+      integer :: display_
       integer :: comment_depth
 
       open(unit=unit, file=path, action='write', encoding='UTF-8', status='replace', iostat=ios)
@@ -314,8 +357,10 @@ contains
          write (*,*) 'Failed to open '//path//' for writing.'
          stop 1
       end if
-      comment_depth = self%get_maximum_depth('') + 1
-      call self%write_yaml(unit, 0, comment_depth, header=.false.)
+      display_ = display_maximum
+      if (present(display)) display_ = display
+      comment_depth = self%get_maximum_depth('', display_) + 1
+      call self%write_yaml(unit, 0, comment_depth, header=.false., display=display_)
    end subroutine save
 
    subroutine write_schema_file(self, path, unit, version)
@@ -354,6 +399,8 @@ contains
       class (type_settings), pointer :: settings
       logical                        :: treat_as_path_
       integer                        :: islash
+
+      if (self%display == display_inherit) self%display = display_normal
 
       istart_ = 1
       settings => self
@@ -417,7 +464,7 @@ contains
       end subroutine
    end function get_node
 
-   function get_real(self, name, long_name, units, default, minimum, maximum, description) result(value)
+   function get_real(self, name, long_name, units, default, minimum, maximum, description, display) result(value)
       class (type_settings),           intent(inout) :: self
       real(rk), target                               :: target
       character(len=*),                intent(in)    :: name
@@ -427,15 +474,17 @@ contains
       real(rk),        optional,       intent(in)    :: minimum
       real(rk),        optional,       intent(in)    :: maximum
       character(len=*),optional,       intent(in)    :: description
+      integer,         optional,       intent(in)    :: display
       real(rk) :: value
 
       class (type_real_setting),  pointer :: setting
 
-      setting => type_real_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, description)
+      setting => type_real_setting_create(self%get_node(name), long_name, units, &
+         default, minimum, maximum, description, display=display)
       value = setting%pvalue
    end function get_real
 
-   subroutine get_real2(self, target, name, long_name, units, default, minimum, maximum, description)
+   subroutine get_real2(self, target, name, long_name, units, default, minimum, maximum, description, display)
       class (type_settings),intent(inout) :: self
       real(rk), target                               :: target
       character(len=*),                intent(in)    :: name
@@ -445,14 +494,16 @@ contains
       real(rk),        optional,       intent(in)    :: minimum
       real(rk),        optional,       intent(in)    :: maximum
       character(len=*),optional,       intent(in)    :: description
+      integer,         optional,       intent(in)    :: display
 
       class (type_real_setting),  pointer :: setting
 
       setting => type_real_setting_create(self%get_node(name), long_name, units, &
-                                          default, minimum, maximum, description, target=target)
+                                          default, minimum, maximum, description, target=target, display=display)
    end subroutine
 
-   function type_real_setting_create(node, long_name, units, default, minimum, maximum, description, target) result(setting)
+   function type_real_setting_create(node, long_name, units, &
+                                     default, minimum, maximum, description, target, display) result(setting)
       class (type_settings_node),      intent(inout) :: node
       character(len=*),                intent(in)    :: long_name
       character(len=*),                intent(in)    :: units
@@ -461,6 +512,7 @@ contains
       real(rk),        optional,       intent(in)    :: maximum
       character(len=*),optional,       intent(in)    :: description
       real(rk), target, optional                     :: target
+      integer,         optional,       intent(in)    :: display
       class (type_real_setting),  pointer :: setting
 
       select type (value => node%value)
@@ -479,6 +531,7 @@ contains
       if (units /= '') setting%units = units
       if (present(minimum)) setting%minimum = minimum
       if (present(maximum)) setting%maximum = maximum
+      if (present(display)) setting%display = display
       if (present(default)) then
          if (default < setting%minimum) call report_error('Default value of setting '//setting%path// &
             ' lies below prescribed minimum.')
@@ -518,7 +571,7 @@ contains
          ' exceeds prescribed maximum.')
    end subroutine
 
-   function get_integer(self, name, long_name, units, default, minimum, maximum, options, description) result(value)
+   function get_integer(self, name, long_name, units, default, minimum, maximum, options, description, display) result(value)
       class (type_settings),       intent(inout) :: self
       character(len=*),            intent(in)    :: name
       character(len=*),            intent(in)    :: long_name
@@ -528,15 +581,17 @@ contains
       integer,           optional, intent(in)    :: maximum
       type (type_option),optional, intent(in)    :: options(:)
       character(len=*),  optional, intent(in)    :: description
+      integer,           optional, intent(in)    :: display
       integer :: value
 
       class (type_integer_setting), pointer :: setting
 
-      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, options, description)
+      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, &
+         options, description, display=display)
       value = setting%pvalue
    end function
 
-   subroutine get_integer2(self, target, name, long_name, units, default, minimum, maximum, options, description)
+   subroutine get_integer2(self, target, name, long_name, units, default, minimum, maximum, options, description, display)
       class (type_settings),       intent(inout) :: self
       integer, target                            :: target
       character(len=*),            intent(in)    :: name
@@ -547,15 +602,16 @@ contains
       integer,           optional, intent(in)    :: maximum
       type (type_option),optional, intent(in)    :: options(:)
       character(len=*),  optional, intent(in)    :: description
+      integer,           optional, intent(in)    :: display
 
       class (type_integer_setting), pointer :: setting
 
-      setting => type_integer_setting_create(self%get_node(name), long_name, units, &
-                                             default, minimum, maximum, options, description, target=target)
+      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, &
+         options, description, target=target, display=display)
    end subroutine
 
-   function type_integer_setting_create(node, long_name, units, default, &
-                                        minimum, maximum, options, description, target) result(setting)
+   function type_integer_setting_create(node, long_name, units, default, minimum, maximum, options, &
+      description, target, display) result(setting)
       class (type_settings_node),  intent(inout) :: node
       character(len=*),            intent(in)    :: long_name
       character(len=*),  optional, intent(in)    :: units
@@ -565,6 +621,7 @@ contains
       type (type_option),optional, intent(in)    :: options(:)
       character(len=*),  optional, intent(in)    :: description
       integer, target,   optional                :: target
+      integer,           optional, intent(in)    :: display
       class (type_integer_setting), pointer :: setting
 
       integer                               :: ioption, ioption2, ivalue
@@ -587,6 +644,7 @@ contains
       if (present(units)) setting%units = units
       if (present(minimum)) setting%minimum = minimum
       if (present(maximum)) setting%maximum = maximum
+      if (present(display)) setting%display = display
       if (present(options)) then
          do ioption = 1, size(options)
             do ioption2 = ioption + 1, size(options)
@@ -684,40 +742,44 @@ contains
       end if
    end subroutine integer_set_data
 
-   function get_logical(self, name, long_name, default, description) result(value)
-      class (type_settings),    intent(inout) :: self
-      character(len=*),         intent(in)    :: name
-      character(len=*),         intent(in)    :: long_name
-      logical, optional,        intent(in)    :: default
-      character(len=*),optional,intent(in)    :: description
+   function get_logical(self, name, long_name, default, description, display) result(value)
+      class (type_settings),      intent(inout) :: self
+      character(len=*),           intent(in)    :: name
+      character(len=*),           intent(in)    :: long_name
+      logical,          optional, intent(in)    :: default
+      character(len=*), optional, intent(in)    :: description
+      integer,          optional, intent(in)    :: display
       logical :: value
 
       class (type_logical_setting), pointer :: setting
 
-      setting => type_logical_setting_create(self%get_node(name), long_name, default, description)
+      setting => type_logical_setting_create(self%get_node(name), long_name, default, description, display=display)
       value = setting%pvalue
    end function get_logical
 
-   subroutine get_logical2(self, target, name, long_name, default, description)
-      class (type_settings),    intent(inout) :: self
-      logical, target                         :: target
-      character(len=*),         intent(in)    :: name
-      character(len=*),         intent(in)    :: long_name
-      logical, optional,        intent(in)    :: default
-      character(len=*),optional,intent(in)    :: description
+   subroutine get_logical2(self, target, name, long_name, default, description, display)
+      class (type_settings),      intent(inout) :: self
+      logical, target                           :: target
+      character(len=*),           intent(in)    :: name
+      character(len=*),           intent(in)    :: long_name
+      logical,          optional, intent(in)    :: default
+      character(len=*), optional, intent(in)    :: description
+      integer,          optional, intent(in)    :: display
 
       class (type_logical_setting), pointer :: setting
 
-      setting => type_logical_setting_create(self%get_node(name), long_name, default, description, target=target)
+      setting => type_logical_setting_create(self%get_node(name), long_name, default, description, &
+         target=target, display=display)
    end subroutine get_logical2
 
-   function type_logical_setting_create(node, long_name, default, description, target) result(setting)
-      class (type_settings_node),intent(inout) :: node
-      character(len=*),          intent(in)    :: long_name
-      logical, optional,         intent(in)    :: default
-      character(len=*),optional, intent(in)    :: description
-      logical, target, optional                :: target
-      class (type_logical_setting), pointer :: setting
+   function type_logical_setting_create(node, long_name, default, description, target, display) result(setting)
+      class (type_settings_node), intent(inout) :: node
+      character(len=*),           intent(in)    :: long_name
+      logical, optional,          intent(in)    :: default
+      character(len=*), optional, intent(in)    :: description
+      logical, target,  optional                :: target
+      integer,          optional, intent(in)    :: display
+      class (type_logical_setting), pointer     :: setting
 
       select type (value => node%value)
       class is (type_logical_setting)
@@ -732,6 +794,7 @@ contains
          setting%pvalue => setting%value
       end if
       setting%long_name = long_name
+      if (present(display)) setting%display = display
       if (present(default)) then
          setting%has_default = .true.
          setting%default = default
@@ -763,43 +826,47 @@ contains
       end select
    end subroutine
 
-   function get_string(self, name, long_name, units, default, description) result(value)
+   function get_string(self, name, long_name, units, default, description, display) result(value)
       class (type_settings),      intent(inout) :: self
       character(len=*),           intent(in)    :: name
       character(len=*),           intent(in)    :: long_name
       character(len=*), optional, intent(in)    :: units
       character(len=*), optional, intent(in)    :: default
       character(len=*), optional, intent(in)    :: description
+      integer,          optional, intent(in)    :: display
       character(len=:), allocatable :: value
 
       class (type_string_setting), pointer :: setting
 
-      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description)
+      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description, display=display)
       value = setting%pvalue
    end function
 
-   subroutine get_string2(self, target, name, long_name, units, default, description)
-      class (type_settings),           intent(inout) :: self
-      character(len=*), target                       :: target
-      character(len=*),                intent(in)    :: name
-      character(len=*),                intent(in)    :: long_name
-      character(len=*), optional,      intent(in)    :: units
-      character(len=*), optional,      intent(in)    :: default
-      character(len=*), optional,      intent(in)    :: description
+   subroutine get_string2(self, target, name, long_name, units, default, description, display)
+      class (type_settings),      intent(inout) :: self
+      character(len=*), target                  :: target
+      character(len=*),           intent(in)    :: name
+      character(len=*),           intent(in)    :: long_name
+      character(len=*), optional, intent(in)    :: units
+      character(len=*), optional, intent(in)    :: default
+      character(len=*), optional, intent(in)    :: description
+      integer,          optional, intent(in)    :: display
 
       class (type_string_setting), pointer :: setting
 
-      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description, target=target)
+      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description, &
+         target=target, display=display)
    end subroutine get_string2
 
-   function type_string_setting_create(node, long_name, units, default, description, target) result(setting)
+   function type_string_setting_create(node, long_name, units, default, description, target, display) result(setting)
       class (type_settings_node),      intent(inout) :: node
       character(len=*),                intent(in)    :: long_name
       character(len=*), optional,      intent(in)    :: units
       character(len=*), optional,      intent(in)    :: default
       character(len=*), optional,      intent(in)    :: description
-      character(len=*), target, optional             :: target
-      class (type_string_setting), pointer :: setting
+      character(len=*), optional, target             :: target
+      integer,          optional,      intent(in)    :: display
+      class (type_string_setting), pointer           :: setting
 
       select type (value => node%value)
       class is (type_string_setting)
@@ -815,6 +882,7 @@ contains
       end if
       setting%long_name = long_name
       if (present(units)) setting%units = units
+      if (present(display)) setting%display = display
       if (present(default)) then
          setting%has_default = .true.
          setting%default = default
@@ -855,18 +923,19 @@ contains
       end if
    end function create_child
 
-   recursive function get_child(self, name, long_name, treat_as_path, populator) result(child)
+   recursive function get_child(self, name, long_name, treat_as_path, populator, display) result(child)
       class (type_settings), target, intent(inout) :: self
       character(len=*),              intent(in)    :: name
       character(len=*),optional,     intent(in)    :: long_name
       logical, optional,             intent(in)    :: treat_as_path
       class (type_dictionary_populator), optional, target :: populator
+      integer, optional,             intent(in)    :: display
       class (type_settings),  pointer :: child
 
       class (type_settings_node), pointer :: node
 
       node => self%get_node(name, treat_as_path=treat_as_path)
-      child => type_settings_create(node, long_name, populator)
+      child => type_settings_create(node, long_name, populator, display)
    end function get_child
 
    subroutine node_set_value(self, value)
@@ -874,16 +943,18 @@ contains
       class (type_value), target :: value
 
       value%parent => self%value%parent
+      if (value%display == display_inherit) value%display = value%parent%display
       call move_alloc(self%value%path, value%path)
       value%backing_store_node => self%value%backing_store_node
       deallocate(self%value)
       self%value => value
    end subroutine
 
-   function type_settings_create(node, long_name, populator) result(child)
+   function type_settings_create(node, long_name, populator, display) result(child)
       class (type_settings_node),        optional, intent(inout) :: node
       character(len=*),                  optional, intent(in)    :: long_name
       class (type_dictionary_populator), optional, target        :: populator
+      integer, optional,                           intent(in)    :: display
       class (type_settings),  pointer :: child
 
       logical :: create
@@ -903,6 +974,7 @@ contains
 
       if (present(long_name)) child%long_name = long_name
       if (present(populator)) child%populator => populator
+      if (present(display)) child%display = display
       if ((create .or. present(populator)) .and. associated(child%backing_store_node)) &
          call settings_set_data(child, child%backing_store_node)
    end function
@@ -940,12 +1012,13 @@ contains
       end select 
    end subroutine
 
-   recursive subroutine get_list(self, name, populator, long_name, treat_as_path)
+   recursive subroutine get_list(self, name, populator, long_name, treat_as_path, display)
       class (type_settings), target, intent(inout) :: self
       character(len=*),              intent(in)    :: name
       character(len=*), optional,    intent(in)    :: long_name
       class (type_list_populator), target          :: populator
       logical, optional,             intent(in)    :: treat_as_path
+      integer, optional,             intent(in)    :: display
 
       class (type_settings_node), pointer :: node
       class (type_list),          pointer :: list
@@ -961,6 +1034,7 @@ contains
       end select
 
       list%populator => populator
+      if (present(display)) list%display = display
       if (present(long_name)) list%long_name = long_name
       if (associated(list%backing_store_node)) call list_set_data(list, list%backing_store_node)
    end subroutine get_list
@@ -1051,13 +1125,15 @@ contains
       stop 1
    end subroutine report_error
 
-   recursive subroutine settings_write_yaml(self, unit, indent, comment_depth, header)
+   recursive subroutine settings_write_yaml(self, unit, indent, comment_depth, header, display)
       class (type_settings), intent(in) :: self
       integer,               intent(in) :: unit
       integer,               intent(in) :: indent
       integer,               intent(in) :: comment_depth
       logical,               intent(in) :: header
+      integer,               intent(in) :: display
 
+      logical :: first
       type (type_key_value_pair), pointer  :: pair
       integer :: block_indent
 
@@ -1068,25 +1144,31 @@ contains
       !   write (unit, '("# ",a,a)') repeat(' ', indent), repeat('-', 80)
       !end if
 
+      first = .true.
       pair => self%first
       do while (associated(pair))
-         if (.not. associated(pair, self%first)) write (unit, '(a)', advance='no') repeat(' ', indent)
-         write (unit, '(a,":")', advance='no') pair%name
-         block_indent = pair%value%get_yaml_style()
-         if (block_indent == -1) then
-            ! flow
-            write (unit, '(" ")', advance='no')
-            call pair%value%write_yaml(unit, indent + len(pair%name) + 2, comment_depth - len(pair%name) - 2, header=.false.)
-         else
-            ! block or null
-            if (allocated(pair%value%long_name)) write (unit, '(a,"# ",a)', advance='no') &
-               repeat(' ', comment_depth - len(pair%name) - 1), pair%value%long_name
-            write (unit, *)
-            if (block_indent >= 0) then
-               ! block
-               write (unit, '(a)', advance='no') repeat(' ', indent + block_indent)
-               call pair%value%write_yaml(unit, indent + block_indent, comment_depth - block_indent, header=.false.)
+         if (pair%value%is_visible(display)) then
+            if (.not. first) write (unit, '(a)', advance='no') repeat(' ', indent)
+            write (unit, '(a,":")', advance='no') pair%name
+            block_indent = pair%value%get_yaml_style(display)
+            if (block_indent == -1) then
+               ! flow
+               write (unit, '(" ")', advance='no')
+               call pair%value%write_yaml(unit, indent + len(pair%name) + 2, comment_depth - len(pair%name) - 2, &
+                  header=.false., display=display)
+            else
+               ! block or null
+               if (allocated(pair%value%long_name)) write (unit, '(a,"# ",a)', advance='no') &
+                  repeat(' ', comment_depth - len(pair%name) - 1), pair%value%long_name
+               write (unit, *)
+               if (block_indent >= 0) then
+                  ! block
+                  write (unit, '(a)', advance='no') repeat(' ', indent + block_indent)
+                  call pair%value%write_yaml(unit, indent + block_indent, comment_depth - block_indent, &
+                     header=.false., display=display)
+               end if
             end if
+            first = .false.
          end if
          pair => pair%next
       end do
@@ -1113,7 +1195,7 @@ contains
                call write_header(pair%value, pair%name, indent + yaml_indent)
                pair => pair%next
             end do
-         class is (type_scalar_setting)
+         class is (type_scalar_value)
             if (allocated(self%description)) write (unit,'("# ",a,a)') repeat(' ', indent + yaml_indent), self%description
             select type (self)
             class is (type_real_setting)
@@ -1159,12 +1241,13 @@ contains
    end subroutine
 
 
-   recursive subroutine list_write_yaml(self, unit, indent, comment_depth, header)
+   recursive subroutine list_write_yaml(self, unit, indent, comment_depth, header, display)
       class (type_list), intent(in) :: self
       integer,           intent(in) :: unit
       integer,           intent(in) :: indent
       integer,           intent(in) :: comment_depth
       logical,           intent(in) :: header
+      integer,           intent(in) :: display
 
       type (type_list_item), pointer :: item
 
@@ -1172,17 +1255,18 @@ contains
       do while (associated(item))
          if (.not. associated(item, self%first)) write (unit, '(a)', advance='no') repeat(' ', indent)
          write (unit, '("- ")', advance='no')
-         call item%value%write_yaml(unit, indent + 2, comment_depth - 2, header=.false.)
+         call item%value%write_yaml(unit, indent + 2, comment_depth - 2, header=.false., display=display)
          item => item%next
       end do
    end subroutine
 
-   recursive subroutine setting_write_yaml(self, unit, indent, comment_depth, header)
-      class (type_scalar_setting), intent(in) :: self
-      integer,              intent(in) :: unit
-      integer,              intent(in) :: indent
-      integer,              intent(in) :: comment_depth
-      logical,              intent(in) :: header
+   recursive subroutine scalar_value_write_yaml(self, unit, indent, comment_depth, header, display)
+      class (type_scalar_value), intent(in) :: self
+      integer,                   intent(in) :: unit
+      integer,                   intent(in) :: indent
+      integer,                   intent(in) :: comment_depth
+      logical,                   intent(in) :: header
+      integer,                   intent(in) :: display
 
       character(len=:), allocatable :: string, comment
 
@@ -1201,24 +1285,37 @@ contains
       if (self%has_default) call append_string(comment, '; ', 'default=' // self%as_string(.true.))
       if (allocated(comment)) write (unit,'(" [",a,"]")', advance='no') comment
       write (unit,*)
-   end subroutine setting_write_yaml
+   end subroutine scalar_value_write_yaml
 
-   recursive subroutine setting_get_comment(self, comment)
-      class (type_scalar_setting), intent(in) :: self
-      character(len=:),allocatable, intent(inout) :: comment
+   recursive subroutine scalar_value_get_comment(self, comment)
+      class (type_scalar_value),     intent(in)    :: self
+      character(len=:), allocatable, intent(inout) :: comment
    end subroutine
    
-   recursive function setting_get_maximum_depth(self, name) result(maxdepth)
-      class (type_scalar_setting), intent(in) :: self
-      character(len=*),     intent(in) :: name
-      integer                          :: maxdepth
+   recursive function scalar_value_get_maximum_depth(self, name, display) result(maxdepth)
+      class (type_scalar_value), intent(in) :: self
+      character(len=*),          intent(in) :: name
+      integer,                   intent(in) :: display
+      integer                               :: maxdepth
 
       maxdepth = len(name) + 2 + len(self%as_string(.false.))
    end function
 
-   recursive function settings_get_maximum_depth(self, name) result(maxdepth)
+   recursive function scalar_value_is_visible(self, display) result(visible)
+      class (type_scalar_value), intent(in) :: self
+      integer,                   intent(in) :: display
+      logical                               :: visible
+      visible = .true.
+      if (display >= self%display) return
+      if (.not. self%has_default) return
+      if (.not. self%at_default()) return
+      visible = .false.
+   end function
+
+   recursive function settings_get_maximum_depth(self, name, display) result(maxdepth)
       class (type_settings), intent(in) :: self
       character(len=*),      intent(in) :: name
+      integer,               intent(in) :: display
       integer                           :: maxdepth
 
       type (type_key_value_pair), pointer :: pair
@@ -1226,14 +1323,33 @@ contains
       maxdepth = len(name) + 1
       pair => self%first
       do while (associated(pair))
-         maxdepth = max(maxdepth, pair%value%get_maximum_depth(pair%name) + yaml_indent)
+         if (pair%value%is_visible(display)) &
+            maxdepth = max(maxdepth, pair%value%get_maximum_depth(pair%name, display=display) + yaml_indent)
          pair => pair%next
       end do
    end function settings_get_maximum_depth
 
-   recursive function list_get_maximum_depth(self, name) result(maxdepth)
+   recursive function settings_is_visible(self, display) result(visible)
+      class (type_settings), intent(in) :: self
+      integer,               intent(in) :: display
+      logical                           :: visible
+
+      type (type_key_value_pair), pointer :: pair
+
+      visible = .true.
+      if (display >= self%display) return
+      pair => self%first
+      do while (associated(pair))
+         if (pair%value%is_visible(display)) return
+         pair => pair%next
+      end do
+      visible = .false.
+   end function
+
+   recursive function list_get_maximum_depth(self, name, display) result(maxdepth)
       class (type_list), intent(in) :: self
       character(len=*),  intent(in) :: name
+      integer,           intent(in) :: display
       integer                       :: maxdepth
 
       type (type_list_item), pointer :: item
@@ -1241,7 +1357,7 @@ contains
       maxdepth = len(name) + 1
       item => self%first
       do while (associated(item))
-         maxdepth = max(maxdepth, item%value%get_maximum_depth('') + 2)
+         maxdepth = max(maxdepth, item%value%get_maximum_depth('', display=display) + 2)
          item => item%next
       end do
    end function list_get_maximum_depth
@@ -1387,6 +1503,26 @@ contains
          string = trim(self%pvalue)
       end if
    end function string_as_string
+
+   logical function integer_at_default(self)
+      class (type_integer_setting), intent(in) :: self
+      integer_at_default = self%pvalue == self%default
+   end function
+
+   logical function real_at_default(self)
+      class (type_real_setting), intent(in) :: self
+      real_at_default = self%pvalue == self%default
+   end function
+
+   logical function logical_at_default(self)
+      class (type_logical_setting), intent(in) :: self
+      logical_at_default = self%pvalue == self%default
+   end function
+
+   logical function string_at_default(self)
+      class (type_string_setting), intent(in) :: self
+      string_at_default = self%pvalue == self%default
+   end function
 
    recursive subroutine settings_write_schema(self, unit, name, indent)
       class (type_settings), intent(in) :: self
