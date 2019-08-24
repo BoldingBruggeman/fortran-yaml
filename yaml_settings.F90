@@ -1516,7 +1516,7 @@ contains
 
    logical function logical_at_default(self)
       class (type_logical_setting), intent(in) :: self
-      logical_at_default = self%pvalue == self%default
+      logical_at_default = self%pvalue .eqv. self%default
    end function
 
    logical function string_at_default(self)
