@@ -56,6 +56,7 @@ module yaml_settings
       character(len=:), allocatable       :: key
       character(len=:), allocatable       :: name
       logical                             :: accessed = .false.
+      integer                             :: order = 0
       type (type_key_value_pair), pointer :: next => null()
    end type
 
@@ -388,22 +389,26 @@ contains
       write (unit,'(a)') '</element>'
    end subroutine write_schema_file
 
-   recursive function get_node(self, name, treat_as_path, istart) result(pair)
+   recursive function get_node(self, name, treat_as_path, istart, order) result(pair)
       class (type_settings), intent(inout), target :: self
       character(len=*),      intent(in)            :: name
       logical, optional,     intent(in)            :: treat_as_path
       integer, optional,     intent(out)           :: istart
+      integer, optional,     intent(in)            :: order
       class (type_key_value_pair), pointer         :: pair
 
       integer                        :: istart_
       class (type_settings), pointer :: settings
       logical                        :: treat_as_path_
       integer                        :: islash
+      integer                        :: order_
 
       if (self%display == display_inherit) self%display = display_normal
 
       istart_ = 1
       settings => self
+      order_ = 0
+      if (present(order)) order_ = order
 
       treat_as_path_ = .true.
       if (present(treat_as_path)) treat_as_path_ = treat_as_path
@@ -426,19 +431,19 @@ contains
       character(len=*),      intent(in)            :: name
 
       character(len=len(name))            :: key
-      type (type_key_value_pair), pointer :: last_accessed
+      type (type_key_value_pair), pointer :: previous
 
       key = string_lower(name)
 
       ! First try to find an existing pair with this key.
-      last_accessed => null()
+      previous => null()
       pair => self%first
       do while (associated(pair))
          if (pair%key == key) then
             if (pair%accessed) return
             exit
          end if
-         if (pair%accessed) last_accessed => pair
+         if (pair%accessed .and. order_ >= pair%order) previous => pair
          pair => pair%next
       end do
 
@@ -454,9 +459,10 @@ contains
 
       pair%name = name
       pair%accessed = .true.
-      if (associated(last_accessed)) then
-         pair%next => last_accessed%next
-         last_accessed%next => pair
+      pair%order = order_
+      if (associated(previous)) then
+         pair%next => previous%next
+         previous%next => pair
       else
          pair%next => self%first
          self%first => pair
@@ -923,18 +929,19 @@ contains
       end if
    end function create_child
 
-   recursive function get_child(self, name, long_name, treat_as_path, populator, display) result(child)
+   recursive function get_child(self, name, long_name, treat_as_path, populator, display, order) result(child)
       class (type_settings), target, intent(inout) :: self
       character(len=*),              intent(in)    :: name
       character(len=*),optional,     intent(in)    :: long_name
       logical, optional,             intent(in)    :: treat_as_path
       class (type_dictionary_populator), optional, target :: populator
       integer, optional,             intent(in)    :: display
+      integer, optional,             intent(in)    :: order
       class (type_settings),  pointer :: child
 
       class (type_settings_node), pointer :: node
 
-      node => self%get_node(name, treat_as_path=treat_as_path)
+      node => self%get_node(name, treat_as_path=treat_as_path, order=order)
       child => type_settings_create(node, long_name, populator, display)
    end function get_child
 
