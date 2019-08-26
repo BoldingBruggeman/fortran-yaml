@@ -297,8 +297,8 @@ contains
          stop 1
       end if
       if (.not. allocated(self%path)) self%path = ''
-      self%backing_store => null()
-      if (associated(root)) call settings_set_data(self, root)
+      self%backing_store_node => root
+      call settings_set_data(self)
    end subroutine load
 
    logical function check_all_used(self)
@@ -976,7 +976,7 @@ contains
       if (present(populator)) child%populator => populator
       if (present(display)) child%display = display
       if ((create .or. present(populator)) .and. associated(child%backing_store_node)) &
-         call settings_set_data(child, child%backing_store_node)
+         call settings_set_data(child)
    end function
 
    subroutine settings_populate(self, populator)
@@ -984,17 +984,18 @@ contains
       class (type_dictionary_populator), target :: populator
 
       self%populator => populator
-      if (associated(self%backing_store_node)) call settings_set_data(self, self%backing_store_node)
+      if (associated(self%backing_store_node)) call settings_set_data(self)
    end subroutine
 
-   recursive subroutine settings_set_data(self, backing_store_node)
+   recursive subroutine settings_set_data(self)
       class (type_settings), target, intent(inout) :: self
-      class (type_yaml_node), target :: backing_store_node
 
       type (type_yaml_key_value_pair), pointer :: yaml_pair
       class (type_key_value_pair),     pointer :: pair
 
-      select type (backing_store_node)
+      self%backing_store => null()
+      if (.not. associated(self%backing_store_node)) return
+      select type (backing_store_node => self%backing_store_node)
       class is (type_yaml_dictionary)
          self%backing_store => backing_store_node
          yaml_pair => self%backing_store%first
@@ -1006,7 +1007,6 @@ contains
             yaml_pair => yaml_pair%next
          end do           
       class is (type_yaml_null)
-         self%backing_store => null()
       class default
          call report_error(self%path//' should be a dictionary')
       end select 
