@@ -28,7 +28,7 @@ module yaml_settings
    integer, parameter, public :: display_minimum  = 0
    integer, parameter, public :: display_normal   = 1
    integer, parameter, public :: display_advanced = 2
-   integer, parameter, public :: display_maximum  = 3
+   integer, parameter, public :: display_hidden  = 3
 
    type type_value
       character(len=:), allocatable   :: long_name
@@ -357,7 +357,7 @@ contains
          write (*,*) 'Failed to open '//path//' for writing.'
          stop 1
       end if
-      display_ = display_maximum
+      display_ = display_hidden
       if (present(display)) display_ = display
       comment_depth = self%get_maximum_depth('', display_) + 1
       call self%write_yaml(unit, 0, comment_depth, header=.false., display=display_)
