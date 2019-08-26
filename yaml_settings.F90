@@ -1403,7 +1403,7 @@ contains
       case (3)
          write (tmp, '(f15.3)') value
       case default
-         write (tmp, '(e15.8)') value
+         write (tmp, '(es15.8)') value
       end select
       string = trim(adjustl(tmp))
    end function
