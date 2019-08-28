@@ -1204,41 +1204,41 @@ contains
             end do
          class is (type_scalar_value)
             if (allocated(self%description)) write (unit,'("# ",a,a)') repeat(' ', indent + yaml_indent), self%description
-            select type (self)
+            select type (scalar => self)
             class is (type_real_setting)
                !write (unit,'(" (",a,")")', advance='no') node%units
                written = .false.
-               if (self%minimum /= default_minimum_real) then
+               if (scalar%minimum /= default_minimum_real) then
                   write (unit,'("# ",a,a,a)', advance='no') repeat(' ', indent + yaml_indent), 'minimum: ', &
-                     format_real(self%minimum)
+                     format_real(scalar%minimum)
                   written = .true.
                end if
-               if (self%maximum /= default_maximum_real) then
+               if (scalar%maximum /= default_maximum_real) then
                   if (written) then
                      write (unit,'(", ")', advance='no')
                   else
                      write (unit,'("# ",a)', advance='no') repeat(' ', indent + yaml_indent)
                   end if
-                  write (unit,'(a,a)', advance='no') 'maximum: ', format_real(self%maximum)
+                  write (unit,'(a,a)', advance='no') 'maximum: ', format_real(scalar%maximum)
                   written = .true.
                end if
-               if (self%has_default) then
+               if (scalar%has_default) then
                   if (written) then
                      write (unit,'(", ")', advance='no')
                   else
                      write (unit,'("# ",a)', advance='no') repeat(' ', indent + yaml_indent)
                   end if
-                  write (unit,'(a,a)', advance='no') 'default: ', format_real(self%default)
+                  write (unit,'(a,a)', advance='no') 'default: ', format_real(scalar%default)
                   written = .true.
                end if
                if (written) write (unit,*)
             class is (type_integer_setting)
                !if (allocated(node%units)) write (unit,'(" (",a,")")', advance='no') node%units
-               if (allocated(self%options)) then
-                  do ioption=1,size(self%options)
+               if (allocated(scalar%options)) then
+                  do ioption=1,size(scalar%options)
                      !if (ioption > 1) write (unit,'(", ")', advance='no')
-                     write (unit,'("# ",a,i0,": ",a)') repeat(' ', indent + yaml_indent), self%options(ioption)%value, &
-                        self%options(ioption)%long_name
+                     write (unit,'("# ",a,i0,": ",a)') repeat(' ', indent + yaml_indent), scalar%options(ioption)%value, &
+                        scalar%options(ioption)%long_name
                   end do
                end if
             end select
