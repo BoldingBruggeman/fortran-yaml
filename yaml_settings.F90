@@ -483,9 +483,11 @@ contains
       integer,         optional,       intent(in)    :: display
       real(rk) :: value
 
-      class (type_real_setting),  pointer :: setting
+      class (type_real_setting),   pointer :: setting
+      class (type_key_value_pair), pointer :: pair
 
-      setting => type_real_setting_create(self%get_node(name), long_name, units, &
+      pair => self%get_node(name)      
+      setting => type_real_setting_create(pair, long_name, units, &
          default, minimum, maximum, description, display=display)
       value = setting%pvalue
    end function get_real
@@ -502,9 +504,11 @@ contains
       character(len=*),optional,       intent(in)    :: description
       integer,         optional,       intent(in)    :: display
 
-      class (type_real_setting),  pointer :: setting
+      class (type_real_setting),   pointer :: setting
+      class (type_key_value_pair), pointer :: pair
 
-      setting => type_real_setting_create(self%get_node(name), long_name, units, &
+      pair => self%get_node(name)      
+      setting => type_real_setting_create(pair, long_name, units, &
                                           default, minimum, maximum, description, target=target, display=display)
    end subroutine
 
@@ -591,8 +595,10 @@ contains
       integer :: value
 
       class (type_integer_setting), pointer :: setting
+      class (type_key_value_pair),  pointer :: pair
 
-      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, &
+      pair => self%get_node(name)
+      setting => type_integer_setting_create(pair, long_name, units, default, minimum, maximum, &
          options, description, display=display)
       value = setting%pvalue
    end function
@@ -611,8 +617,10 @@ contains
       integer,           optional, intent(in)    :: display
 
       class (type_integer_setting), pointer :: setting
+      class (type_key_value_pair),  pointer :: pair
 
-      setting => type_integer_setting_create(self%get_node(name), long_name, units, default, minimum, maximum, &
+      pair => self%get_node(name)
+      setting => type_integer_setting_create(pair, long_name, units, default, minimum, maximum, &
          options, description, target=target, display=display)
    end subroutine
 
@@ -758,8 +766,10 @@ contains
       logical :: value
 
       class (type_logical_setting), pointer :: setting
+      class (type_key_value_pair),  pointer :: pair
 
-      setting => type_logical_setting_create(self%get_node(name), long_name, default, description, display=display)
+      pair => self%get_node(name)
+      setting => type_logical_setting_create(pair, long_name, default, description, display=display)
       value = setting%pvalue
    end function get_logical
 
@@ -773,8 +783,10 @@ contains
       integer,          optional, intent(in)    :: display
 
       class (type_logical_setting), pointer :: setting
+      class (type_key_value_pair),  pointer :: pair
 
-      setting => type_logical_setting_create(self%get_node(name), long_name, default, description, &
+      pair => self%get_node(name)
+      setting => type_logical_setting_create(pair, long_name, default, description, &
          target=target, display=display)
    end subroutine get_logical2
 
@@ -843,8 +855,10 @@ contains
       character(len=:), allocatable :: value
 
       class (type_string_setting), pointer :: setting
+      class (type_key_value_pair), pointer :: pair
 
-      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description, display=display)
+      pair => self%get_node(name)
+      setting => type_string_setting_create(pair, long_name, units, default, description, display=display)
       value = setting%pvalue
    end function
 
@@ -859,8 +873,10 @@ contains
       integer,          optional, intent(in)    :: display
 
       class (type_string_setting), pointer :: setting
+      class (type_key_value_pair), pointer :: pair
 
-      setting => type_string_setting_create(self%get_node(name), long_name, units, default, description, &
+      pair => self%get_node(name)
+      setting => type_string_setting_create(pair, long_name, units, default, description, &
          target=target, display=display)
    end subroutine get_string2
 
