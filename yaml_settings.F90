@@ -1024,11 +1024,11 @@ contains
          yaml_pair => self%backing_store%first
          do while (associated(yaml_pair))
             if (associated(self%populator)) then
-               pair => self%get_node(trim(yaml_pair%key))
+               pair => self%get_node(trim(yaml_pair%key), treat_as_path=.false.)
                call self%populator%create(pair)
             end if
             yaml_pair => yaml_pair%next
-         end do           
+         end do
       class is (type_yaml_null)
       class default
          call report_error(self%path//' should be a dictionary')
