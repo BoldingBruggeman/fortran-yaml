@@ -1,5 +1,7 @@
 module yaml_settings
 
+   use iso_fortran_env, only: error_unit
+
    use yaml_types, only: yaml_real_kind => real_kind, type_yaml_node => type_node, type_yaml_null => type_null, &
       type_yaml_scalar => type_scalar, type_yaml_dictionary => type_dictionary, type_yaml_list => type_list, &
       type_yaml_list_item => type_list_item, type_yaml_error => type_error, type_yaml_key_value_pair => type_key_value_pair
@@ -293,10 +295,7 @@ contains
       character(len=yaml_error_length) :: error
 
       root => yaml_parse(path, unit, error)
-      if (error /= '') then
-         write (*,*) trim(error)
-         stop 1
-      end if
+      if (error /= '') call report_error(error)
       if (.not. allocated(self%path)) self%path = ''
       self%backing_store_node => root
       call settings_set_data(self)
@@ -326,8 +325,8 @@ contains
             do while (associated(pair))
                if (.not. pair%accessed) then
                   n = n + 1
-                  if (n == 1) write (*,*) 'ERROR: the following setting(s) were not recognized:'
-                  write (*,*) '- ' // trim(pair%value%path)
+                  if (n == 1) write (error_unit,*) 'ERROR: the following setting(s) were not recognized:'
+                  write (error_unit,*) '- ' // trim(pair%value%path)
                else
                   call node_check(pair%value, n)
                end if
@@ -354,10 +353,7 @@ contains
       integer :: comment_depth
 
       open(unit=unit, file=path, action='write', encoding='UTF-8', status='replace', iostat=ios)
-      if (ios /= 0) then
-         write (*,*) 'Failed to open '//path//' for writing.'
-         stop 1
-      end if
+      if (ios /= 0) call report_error('Failed to open '//path//' for writing.')
       display_ = display_hidden
       if (present(display)) display_ = display
       comment_depth = self%get_maximum_depth('', display_) + 1
@@ -374,10 +370,7 @@ contains
       type (type_key_value_pair),pointer :: pair
 
       open(unit=unit, file=path, action='write', status='replace', iostat=ios)
-      if (ios /= 0) then
-         write (*,*) 'Failed to open '//path//' for writing.'
-         stop 1
-      end if
+      if (ios /= 0) call report_error('Failed to open '//path//' for writing.')
       write (unit,'(a)') '<?xml version="1.0" ?>'
       write (unit,'(a,a,a)') '<element name="scenario" label="scenario" version="', version, '" namelistextension=".nml"&
          & xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../core/scenario-1.0.xsd">'
@@ -1144,7 +1137,7 @@ contains
 
    subroutine report_error(message)
       character(len=*), intent(in) :: message
-      write (*,*) trim(message)
+      write (error_unit,*) trim(message)
       stop 1
    end subroutine report_error
 
