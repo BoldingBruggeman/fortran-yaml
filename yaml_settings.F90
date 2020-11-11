@@ -709,20 +709,21 @@ contains
 
       logical :: success
       integer :: ioption
-      character(len=:), allocatable :: strvalue
+      character(len=:), allocatable :: str, stroptions
+      character(len=8) :: strtmp
 
       select type (backing_store_node)
       class is (type_yaml_scalar)
-         self%pvalue = backing_store_node%to_integer(self%pvalue, success)
-         if (.not. success .and. allocated(self%options)) then
-            strvalue = string_lower(trim(backing_store_node%string))
+         success = .false.
+         if (allocated(self%options)) then
+            str = string_lower(trim(backing_store_node%string))
             do ioption = 1, size(self%options)
-               if (strvalue == string_lower(self%options(ioption)%long_name)) then
+               if (str == string_lower(self%options(ioption)%long_name)) then
                   ! Value matches long name of option
                   success = .true.
                elseif (allocated(self%options(ioption)%key)) then
                   ! Option has a key; check if value matches that
-                  if (strvalue == self%options(ioption)%key) success = .true.
+                  if (str == self%options(ioption)%key) success = .true.
                end if
                if (success) then
                   self%pvalue = self%options(ioption)%value
@@ -730,8 +731,31 @@ contains
                end if
             end do
          end if
-         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
-            '", which cannot be interpreted as an integer number.')
+         if (.not. success) self%pvalue = backing_store_node%to_integer(self%pvalue, success)
+         if (.not. success) then
+            if (allocated(self%options)) then
+               ! Include list of allowed options in error message
+               stroptions = ''
+               do ioption = 1, size(self%options)
+                  write (strtmp,'(i0)') self%options(ioption)%value
+                  if (allocated(self%options(ioption)%key)) then
+                     str = self%options(ioption)%key // ' (' // trim(strtmp) // ')'
+                     if (self%options(ioption)%key /= string_lower(self%options(ioption)%long_name)) then
+                        stroptions = stroptions // achar(10) // '- ' // str // ' = ' // self%options(ioption)%long_name
+                     else
+                        stroptions = stroptions // achar(10) // '- ' // str
+                     end if
+                  else
+                     stroptions = stroptions // achar(10) // '- ' // trim(strtmp) // ' = ' // self%options(ioption)%long_name
+                  end if
+               end do
+               call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+                  '", which is not one of the valid options:' // stroptions)
+            else
+               call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+                  '", which cannot be interpreted as an integer number.')
+            end if
+         end if
       class default
          call report_error('Setting '//self%path//' must be an integer number.')
       end select
@@ -1137,7 +1161,7 @@ contains
 
    subroutine report_error(message)
       character(len=*), intent(in) :: message
-      write (error_unit,*) trim(message)
+      write (error_unit,'(a)') trim(message)
       stop 1
    end subroutine report_error
 
