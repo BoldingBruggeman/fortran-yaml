@@ -11,7 +11,7 @@ module yaml_settings
 
    private
 
-   public type_settings, type_option, option, report_error, type_settings_create
+   public type_settings, type_option, option, report_error, type_settings_create, type_header
    public type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item
    public type_real_setting, type_logical_setting, type_integer_setting, type_string_setting
    public type_real_setting_create, type_logical_setting_create, type_integer_setting_create, type_string_setting_create
@@ -213,6 +213,17 @@ module yaml_settings
       procedure :: at_default   => string_at_default
    end type
 
+   type type_line
+      character(:), allocatable :: text
+      type (type_line), pointer :: next => null()
+   end type
+
+   type type_header
+      type (type_line), pointer :: first_line => null()
+   contains
+      procedure :: append => header_append
+   end type
+
 contains
 
    type (type_option) function option(value, long_name, key)
@@ -343,17 +354,29 @@ contains
 
    end function check_all_used
 
-   subroutine save(self, path, unit, display)
-      class (type_settings), intent(in) :: self
-      character(len=*),      intent(in) :: path
-      integer,               intent(in) :: unit
-      integer, optional,     intent(in) :: display
-      integer :: ios
-      integer :: display_
-      integer :: comment_depth
+   subroutine save(self, path, unit, display, header)
+      class (type_settings),        intent(in) :: self
+      character(len=*),             intent(in) :: path
+      integer,                      intent(in) :: unit
+      integer,            optional, intent(in) :: display
+      type (type_header), optional, intent(in) :: header
+
+      integer                   :: ios
+      type (type_line), pointer :: line
+      integer                   :: display_
+      integer                   :: comment_depth
 
       open(unit=unit, file=path, action='write', encoding='UTF-8', status='replace', iostat=ios)
       if (ios /= 0) call report_error('Failed to open '//path//' for writing.')
+
+      if (present(header)) then
+         line => header%first_line
+         do while (associated(line))
+            write (unit,'("# ",a)') line%text
+            line => line%next
+         end do
+      end if
+
       display_ = display_hidden
       if (present(display)) display_ = display
       comment_depth = self%get_maximum_depth('', display_) + 1
@@ -1650,6 +1673,25 @@ contains
    subroutine list_populator_set_length(self, n)
       class (type_list_populator), intent(inout) :: self
       integer,                     intent(in)    :: n
+   end subroutine
+
+   subroutine header_append(self, text)
+      class (type_header), intent(inout) :: self
+      character(len=*),    intent(in)    :: text
+      type (type_line), pointer :: line
+
+      if (associated(self%first_line)) then
+         line => self%first_line
+         do while (associated(line%next))
+            line => line%next
+         end do
+         allocate(line%next)
+         line => line%next
+      else
+         allocate(self%first_line)
+         line => self%first_line
+      end if
+      line%text = text
    end subroutine
 
 end module yaml_settings
