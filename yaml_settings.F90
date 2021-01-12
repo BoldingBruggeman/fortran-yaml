@@ -158,10 +158,11 @@ module yaml_settings
       type (type_list_item),       pointer :: first => null()
       class (type_list_populator), pointer :: populator => null()
    contains
-      procedure :: write_schema => list_write_schema
-      procedure :: write_yaml => list_write_yaml
+      procedure :: write_schema      => list_write_schema
+      procedure :: write_yaml        => list_write_yaml
       procedure :: get_maximum_depth => list_get_maximum_depth
-      procedure :: get_yaml_style => list_get_yaml_style
+      procedure :: get_yaml_style    => list_get_yaml_style
+      procedure :: is_visible        => list_is_visible
    end type
 
    type, extends(type_scalar_value) :: type_integer_setting
@@ -282,7 +283,7 @@ contains
       settings_get_yaml_style = yaml_indent
       pair => self%first
       do while (associated(pair))
-         if (pair%value%is_visible(display)) return
+         if (associated(self%populator) .or. pair%value%is_visible(display)) return
          pair => pair%next
       end do
 
@@ -1210,7 +1211,7 @@ contains
       first = .true.
       pair => self%first
       do while (associated(pair))
-         if (pair%value%is_visible(display)) then
+         if (associated(self%populator) .or. pair%value%is_visible(display)) then
             if (.not. first) write (unit, '(a)', advance='no') repeat(' ', indent)
             write (unit, '(a,":")', advance='no') pair%name
             block_indent = pair%value%get_yaml_style(display)
@@ -1386,7 +1387,7 @@ contains
       maxdepth = len(name) + 1
       pair => self%first
       do while (associated(pair))
-         if (pair%value%is_visible(display)) &
+         if (associated(self%populator) .or. pair%value%is_visible(display)) &
             maxdepth = max(maxdepth, pair%value%get_maximum_depth(pair%name, display=display) + yaml_indent)
          pair => pair%next
       end do
@@ -1403,7 +1404,7 @@ contains
       if (display >= self%display) return
       pair => self%first
       do while (associated(pair))
-         if (pair%value%is_visible(display)) return
+         if (associated(self%populator) .or. pair%value%is_visible(display)) return
          pair => pair%next
       end do
       visible = .false.
@@ -1674,6 +1675,13 @@ contains
       class (type_list_populator), intent(inout) :: self
       integer,                     intent(in)    :: n
    end subroutine
+
+   recursive function list_is_visible(self, display) result(visible)
+      class (type_list), intent(in) :: self
+      integer,           intent(in) :: display
+      logical                       :: visible
+      visible = display >= self%display .or. associated(self%first)
+   end function
 
    subroutine header_append(self, text)
       class (type_header), intent(inout) :: self
