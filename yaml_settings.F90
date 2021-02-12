@@ -119,6 +119,7 @@ module yaml_settings
       procedure :: check_all_used
       generic :: get => get_real2, get_integer2, get_logical2, get_string2
       procedure :: populate => settings_populate
+      procedure :: ignore
       procedure :: finalize
    end type type_settings
 
@@ -312,6 +313,63 @@ contains
       self%backing_store_node => root
       call settings_set_data(self)
    end subroutine load
+
+   function ignore(self, name) result(found)
+      class (type_settings), intent(inout) :: self
+      character(len=*),      intent(in)    :: name
+      logical                              :: found
+
+      class (type_yaml_dictionary), pointer :: parent
+      class (type_yaml_node),       pointer :: node
+      integer                               :: islash, istart_
+
+      found = .false.
+      istart_ = 1
+      parent => self%backing_store
+      do while (associated(parent))
+         islash = index(name(istart_:), '/')
+         if (islash == 0) exit
+         node => parent%get(name(istart_:istart_+islash-2))
+         select type (node)
+         class is(type_yaml_dictionary)
+            parent => node
+         class default
+            parent => null()
+         end select
+         istart_ = istart_ + islash
+      end do
+      if (associated(parent)) then
+         node => parent%get(name(istart_:))
+         found = associated(node)
+         if (found) call touch(node)
+      end if
+
+   contains
+
+      recursive subroutine touch(self)
+         class (type_yaml_node), intent(inout) :: self
+
+         type (type_yaml_key_value_pair), pointer :: pair
+         type (type_yaml_list_item),      pointer :: item
+
+         select type (self)
+         class is (type_yaml_dictionary)
+            pair => self%first
+            do while (associated(pair))
+               pair%accessed = .true.
+               call touch(pair%value)
+               pair => pair%next
+            end do
+         class is (type_yaml_list)
+            item => self%first
+            do while (associated(item))
+               call touch(item%node)
+               item => item%next
+            end do
+         end select
+      end subroutine
+
+   end function
 
    logical function check_all_used(self)
       class (type_settings), intent(in) :: self
