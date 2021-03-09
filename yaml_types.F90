@@ -95,6 +95,7 @@ module yaml_types
       procedure :: append   => list_append
       procedure :: dump     => list_dump
       procedure :: set_path => list_set_path
+      procedure :: finalize => list_finalize
    end type
 
    type type_error
@@ -551,5 +552,21 @@ contains
          item => item%next
       end do
    end subroutine list_set_path
+
+   recursive subroutine list_finalize(self)
+      class (type_list),intent(inout) :: self
+
+      type (type_list_item),pointer :: item, next
+
+      item => self%first
+      do while (associated(item))
+         next => item%next
+         call item%node%finalize()
+         deallocate(item%node)
+         deallocate(item)
+         item => next
+      end do
+      nullify(self%first)
+   end subroutine list_finalize
 
 end module yaml_types

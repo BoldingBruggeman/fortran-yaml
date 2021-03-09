@@ -383,7 +383,12 @@ contains
       integer :: n
 
       n = 0
-      if (associated(self%backing_store)) call node_check(self%backing_store, n)
+      if (associated(self%backing_store_node)) then
+         if (self%backing_store_node%path /= '') &
+            call report_error('BUG: check_all_used can only be called on settings initialized by load')
+         call node_check(self%backing_store_node, n)
+         call self%backing_store_node%finalize()
+      end if
       check_all_used = n == 0
 
    contains
