@@ -46,6 +46,7 @@ module yaml_settings
       procedure :: is_visible        => value_is_visible
       procedure :: get_yaml_style    => value_get_yaml_style
       procedure :: create_child
+      procedure :: finalize          => value_finalize
    end type type_value
 
    type type_settings_node
@@ -164,6 +165,7 @@ module yaml_settings
       procedure :: get_maximum_depth => list_get_maximum_depth
       procedure :: get_yaml_style    => list_get_yaml_style
       procedure :: is_visible        => list_is_visible
+      procedure :: finalize          => list_finalize
    end type
 
    type, extends(type_scalar_value) :: type_integer_setting
@@ -274,6 +276,10 @@ contains
       integer,            intent(in) :: display
       value_get_yaml_style = -1
    end function
+
+   recursive subroutine value_finalize(self)
+      class (type_value), intent(inout) :: self
+   end subroutine
 
    integer function settings_get_yaml_style(self, display)
       class (type_settings), intent(in) :: self
@@ -1206,7 +1212,7 @@ contains
       end select 
    end subroutine
 
-   subroutine finalize(self)
+   recursive subroutine finalize(self)
       class (type_settings),intent(inout) :: self
 
       type (type_key_value_pair),pointer :: current, next
@@ -1214,10 +1220,7 @@ contains
       current => self%first
       do while (associated(current))
          next => current%next
-         select type (value => current%value)
-         class is (type_settings)
-            call value%finalize()
-         end select
+         call current%value%finalize()
          deallocate(current%value)
          deallocate(current)
          current => next
@@ -1740,6 +1743,22 @@ contains
       logical                       :: visible
       visible = display >= self%display .or. associated(self%first)
    end function
+
+   recursive subroutine list_finalize(self)
+      class (type_list),intent(inout) :: self
+
+      type (type_list_item),pointer :: current, next
+
+      current => self%first
+      do while (associated(current))
+         next => current%next
+         call current%value%finalize()
+         deallocate(current%value)
+         deallocate(current)
+         current => next
+      end do
+      self%first => null()
+   end subroutine list_finalize
 
    subroutine header_append(self, text)
       class (type_header), intent(inout) :: self
