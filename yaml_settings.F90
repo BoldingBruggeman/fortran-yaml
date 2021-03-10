@@ -388,6 +388,7 @@ contains
             call report_error('BUG: check_all_used can only be called on settings initialized by load')
          call node_check(self%backing_store_node, n)
          call self%backing_store_node%finalize()
+         deallocate(self%backing_store_node)
       end if
       check_all_used = n == 0
 
