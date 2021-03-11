@@ -378,7 +378,7 @@ contains
    end function
 
    logical function check_all_used(self)
-      class (type_settings), intent(in) :: self
+      class (type_settings), intent(inout) :: self
 
       integer :: n
 
