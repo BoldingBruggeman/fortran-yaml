@@ -59,6 +59,7 @@ module yaml_settings
       character(len=:), allocatable       :: key
       character(len=:), allocatable       :: name
       logical                             :: accessed = .false.
+      logical                             :: from_populator = .false.
       integer                             :: order = 0
       type (type_key_value_pair), pointer :: next => null()
    end type
@@ -94,9 +95,8 @@ module yaml_settings
    end interface
 
    type, extends(type_value) :: type_settings
-      class (type_yaml_dictionary),      pointer :: backing_store => null()
-      class (type_dictionary_populator), pointer :: populator     => null()
-      type (type_key_value_pair),        pointer :: first         => null()
+      class (type_yaml_dictionary), pointer :: backing_store => null()
+      type (type_key_value_pair),   pointer :: first         => null()
    contains
       procedure :: write_schema => settings_write_schema
       procedure :: write_yaml => settings_write_yaml
@@ -157,8 +157,7 @@ module yaml_settings
    end type
 
    type, extends(type_value) :: type_list
-      type (type_list_item),       pointer :: first => null()
-      class (type_list_populator), pointer :: populator => null()
+      type (type_list_item), pointer :: first => null()
    contains
       procedure :: write_schema      => list_write_schema
       procedure :: write_yaml        => list_write_yaml
@@ -290,7 +289,7 @@ contains
       settings_get_yaml_style = yaml_indent
       pair => self%first
       do while (associated(pair))
-         if (associated(self%populator) .or. pair%value%is_visible(display)) return
+         if (pair%from_populator .or. pair%value%is_visible(display)) return
          pair => pair%next
       end do
 
@@ -1057,13 +1056,13 @@ contains
    end function create_child
 
    recursive function get_child(self, name, long_name, treat_as_path, populator, display, order) result(child)
-      class (type_settings), target, intent(inout) :: self
-      character(len=*),              intent(in)    :: name
-      character(len=*),optional,     intent(in)    :: long_name
-      logical, optional,             intent(in)    :: treat_as_path
-      class (type_dictionary_populator), optional, target :: populator
-      integer, optional,             intent(in)    :: display
-      integer, optional,             intent(in)    :: order
+      class (type_settings), target,               intent(inout) :: self
+      character(len=*),                            intent(in)    :: name
+      character(len=*),                  optional, intent(in)    :: long_name
+      logical,                           optional, intent(in)    :: treat_as_path
+      class (type_dictionary_populator), optional, intent(inout) :: populator
+      integer,                           optional, intent(in)    :: display
+      integer,                           optional, intent(in)    :: order
       class (type_settings),  pointer :: child
 
       class (type_settings_node), pointer :: node
@@ -1087,7 +1086,7 @@ contains
    function type_settings_create(node, long_name, populator, display) result(child)
       class (type_settings_node),        optional, intent(inout) :: node
       character(len=*),                  optional, intent(in)    :: long_name
-      class (type_dictionary_populator), optional, target        :: populator
+      class (type_dictionary_populator), optional, intent(inout) :: populator
       integer, optional,                           intent(in)    :: display
       class (type_settings),  pointer :: child
 
@@ -1107,22 +1106,21 @@ contains
       end if
 
       if (present(long_name)) child%long_name = long_name
-      if (present(populator)) child%populator => populator
       if (present(display)) child%display = display
       if ((create .or. present(populator)) .and. associated(child%backing_store_node)) &
-         call settings_set_data(child)
+         call settings_set_data(child, populator)
    end function
 
    subroutine settings_populate(self, populator)
       class (type_settings), target, intent(inout) :: self
       class (type_dictionary_populator), target :: populator
 
-      self%populator => populator
-      if (associated(self%backing_store_node)) call settings_set_data(self)
+      if (associated(self%backing_store_node)) call settings_set_data(self, populator)
    end subroutine
 
-   recursive subroutine settings_set_data(self)
-      class (type_settings), target, intent(inout) :: self
+   recursive subroutine settings_set_data(self, populator)
+      class (type_settings), target,               intent(inout) :: self
+      class (type_dictionary_populator), optional, intent(inout) :: populator
 
       type (type_yaml_key_value_pair), pointer :: yaml_pair
       class (type_key_value_pair),     pointer :: pair
@@ -1134,9 +1132,10 @@ contains
          self%backing_store => backing_store_node
          yaml_pair => self%backing_store%first
          do while (associated(yaml_pair))
-            if (associated(self%populator)) then
+            if (present(populator)) then
                pair => self%get_node(trim(yaml_pair%key), treat_as_path=.false.)
-               call self%populator%create(pair)
+               call populator%create(pair)
+               pair%from_populator = .true.
             end if
             yaml_pair => yaml_pair%next
          end do
@@ -1150,7 +1149,7 @@ contains
       class (type_settings), target, intent(inout) :: self
       character(len=*),              intent(in)    :: name
       character(len=*), optional,    intent(in)    :: long_name
-      class (type_list_populator), target          :: populator
+      class (type_list_populator),   intent(inout) :: populator
       logical, optional,             intent(in)    :: treat_as_path
       integer, optional,             intent(in)    :: display
 
@@ -1167,15 +1166,15 @@ contains
          call node%set_value(list)
       end select
 
-      list%populator => populator
       if (present(display)) list%display = display
       if (present(long_name)) list%long_name = long_name
-      if (associated(list%backing_store_node)) call list_set_data(list, list%backing_store_node)
+      if (associated(list%backing_store_node)) call list_set_data(list, list%backing_store_node, populator)
    end subroutine get_list
 
-   subroutine list_set_data(self, backing_store_node)
+   subroutine list_set_data(self, backing_store_node, populator)
       class (type_list), target, intent(inout) :: self
       class (type_yaml_node), target :: backing_store_node
+      class (type_list_populator),   intent(inout) :: populator
 
       type (type_yaml_list_item), pointer :: yaml_item
       type (type_list_item),      pointer :: item, last_item
@@ -1190,7 +1189,7 @@ contains
             i = i + 1
             yaml_item => yaml_item%next
          end do
-         call self%populator%set_length(i)
+         call populator%set_length(i)
 
          last_item => self%first
          yaml_item => backing_store_node%first
@@ -1209,7 +1208,7 @@ contains
                last_item%next => item
             end if
             last_item => item
-            call self%populator%create(i, item)
+            call populator%create(i, item)
             yaml_item => yaml_item%next
          end do
       class is (type_yaml_null)
@@ -1232,6 +1231,7 @@ contains
          current => next
       end do
       self%first => null()
+      if (allocated(self%path)) deallocate(self%path)
    end subroutine finalize
 
    function string_lower(string) result (lowerstring)
@@ -1278,7 +1278,7 @@ contains
       first = .true.
       pair => self%first
       do while (associated(pair))
-         if (associated(self%populator) .or. pair%value%is_visible(display)) then
+         if (pair%from_populator .or. pair%value%is_visible(display)) then
             if (.not. first) write (unit, '(a)', advance='no') repeat(' ', indent)
             write (unit, '(a,":")', advance='no') pair%name
             block_indent = pair%value%get_yaml_style(display)
@@ -1454,7 +1454,7 @@ contains
       maxdepth = len(name) + 1
       pair => self%first
       do while (associated(pair))
-         if (associated(self%populator) .or. pair%value%is_visible(display)) &
+         if (pair%from_populator .or. pair%value%is_visible(display)) &
             maxdepth = max(maxdepth, pair%value%get_maximum_depth(pair%name, display=display) + yaml_indent)
          pair => pair%next
       end do
@@ -1471,7 +1471,7 @@ contains
       if (display >= self%display) return
       pair => self%first
       do while (associated(pair))
-         if (associated(self%populator) .or. pair%value%is_visible(display)) return
+         if (pair%from_populator .or. pair%value%is_visible(display)) return
          pair => pair%next
       end do
       visible = .false.
