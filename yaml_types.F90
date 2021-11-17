@@ -255,11 +255,21 @@ contains
       logical,optional,   intent(out) :: success
       logical                         :: value
 
-      integer :: ios
+      character(len=20), parameter :: true_strings(3) = ["true","True",'TRUE']
+      character(len=20), parameter :: false_strings(3) = ["false","False",'FALSE']
 
       value = default
-      read(self%string,*,iostat=ios) value
-      if (present(success)) success = (ios == 0)
+      
+      if (any(self%string == true_strings)) then
+        value = .true.
+        if (present(success)) success = .true.
+      elseif (any(self%string == false_strings)) then
+        value = .false.
+        if (present(success)) success = .true.
+      else
+        if (present(success)) success = .false.
+      endif
+      
    end function
 
    function scalar_to_integer(self,default,success) result(value)
