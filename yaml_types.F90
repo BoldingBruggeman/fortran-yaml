@@ -82,6 +82,7 @@ module yaml_types
       procedure :: reset_accessed => dictionary_reset_accessed
       procedure :: set_path       => dictionary_set_path
       procedure :: finalize       => dictionary_finalize
+      procedure :: size           => dictionary_size
    end type
 
    type type_list_item
@@ -96,6 +97,7 @@ module yaml_types
       procedure :: dump     => list_dump
       procedure :: set_path => list_set_path
       procedure :: finalize => list_finalize
+      procedure :: size     => list_size
    end type
 
    type type_error
@@ -253,11 +255,21 @@ contains
       logical,optional,   intent(out) :: success
       logical                         :: value
 
-      integer :: ios
+      character(len=20), parameter :: true_strings(3) = ["true","True",'TRUE']
+      character(len=20), parameter :: false_strings(3) = ["false","False",'FALSE']
 
       value = default
-      read(self%string,*,iostat=ios) value
-      if (present(success)) success = (ios == 0)
+      
+      if (any(self%string == true_strings)) then
+        value = .true.
+        if (present(success)) success = .true.
+      elseif (any(self%string == false_strings)) then
+        value = .false.
+        if (present(success)) success = .true.
+      else
+        if (present(success)) success = .false.
+      endif
+      
    end function
 
    function scalar_to_integer(self,default,success) result(value)
@@ -491,6 +503,21 @@ contains
       end do
       nullify(self%first)
    end subroutine dictionary_finalize
+   
+   function dictionary_size(self) result(n)
+     class (type_dictionary), intent(in) :: self
+     integer :: n
+     
+     type (type_key_value_pair), pointer :: pair
+     
+     n = 0
+     pair => self%first
+     do while(associated(pair))
+       n = n + 1
+       pair => pair%next
+     enddo
+     
+   end function dictionary_size
 
    subroutine list_append(self,node)
       class (type_list),intent(inout) :: self
@@ -568,5 +595,20 @@ contains
       end do
       nullify(self%first)
    end subroutine list_finalize
+   
+   function list_size(self) result(n)
+     class (type_list), intent(in) :: self
+     integer :: n
+     
+     type (type_list_item),pointer :: item
+     
+     n = 0
+     item => self%first
+     do while(associated(item))
+       n = n + 1
+       item => item%next
+     enddo
+     
+   end function list_size
 
 end module yaml_types
