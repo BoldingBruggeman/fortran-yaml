@@ -4,17 +4,19 @@ module yaml_settings
 
    use yaml_types, only: yaml_real_kind => real_kind, type_yaml_node => type_node, type_yaml_null => type_null, &
       type_yaml_scalar => type_scalar, type_yaml_dictionary => type_dictionary, type_yaml_list => type_list, &
-      type_yaml_list_item => type_list_item, type_yaml_error => type_error, type_yaml_key_value_pair => type_key_value_pair
+      type_yaml_list_item => type_list_item, type_yaml_error => type_error, type_yaml_key_value_pair => type_key_value_pair, &
+      string_lower
    use yaml, only: yaml_parse => parse, yaml_error_length => error_length
 
    implicit none
 
    private
 
-   public type_settings, type_option, option, report_error, type_settings_create, type_header
+   public type_settings, type_option, option, report_error, type_settings_create, type_header, type_scalar_value
    public type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item
    public type_real_setting, type_logical_setting, type_integer_setting, type_string_setting
    public type_real_setting_create, type_logical_setting_create, type_integer_setting_create, type_string_setting_create
+   public format_real, format_integer, error_reporter
 
    integer, parameter :: rk = yaml_real_kind
 
@@ -46,11 +48,14 @@ module yaml_settings
       procedure :: is_visible        => value_is_visible
       procedure :: get_yaml_style    => value_get_yaml_style
       procedure :: create_child
+      procedure :: ignore_node
+      generic :: ignore => ignore_node
       procedure :: finalize          => value_finalize
    end type type_value
 
    type type_settings_node
       class (type_value), pointer :: value => null()
+      logical :: own_value = .true.
    contains
       procedure :: set_value => node_set_value
    end type
@@ -104,6 +109,7 @@ module yaml_settings
       procedure :: is_visible => settings_is_visible
       procedure :: get_yaml_style => settings_get_yaml_style
       procedure :: load
+      procedure :: take_values
       procedure :: save
       procedure :: write_schema_file
       procedure :: get_real2
@@ -115,12 +121,14 @@ module yaml_settings
       procedure :: get_logical
       procedure :: get_string
       procedure :: get_child
+      procedure :: attach_child
       procedure :: get_list
       procedure :: get_node
       procedure :: check_all_used
       generic :: get => get_real2, get_integer2, get_logical2, get_string2
       procedure :: populate => settings_populate
-      procedure :: ignore
+      procedure :: ignore_child
+      generic :: ignore => ignore_child
       procedure :: finalize
    end type type_settings
 
@@ -187,6 +195,7 @@ module yaml_settings
       real(rk) :: default = 0.0_rk
       real(rk) :: minimum = default_minimum_real
       real(rk) :: maximum = default_maximum_real
+      real(rk) :: scale_factor = 1.0_rk
    contains
       procedure, nopass :: create => type_real_setting_create
       procedure :: as_string    => real_as_string
@@ -226,6 +235,13 @@ module yaml_settings
    contains
       procedure :: append => header_append
    end type
+
+   interface
+      subroutine error_reporter_proc(message)
+         character(len=*), intent(in) :: message   
+      end subroutine
+   end interface
+   procedure(error_reporter_proc), pointer, save :: error_reporter => null()
 
 contains
 
@@ -319,7 +335,16 @@ contains
       call settings_set_data(self)
    end subroutine load
 
-   function ignore(self, name) result(found)
+   subroutine take_values(self, other)
+      class (type_settings), intent(inout) :: self
+      class (type_settings), intent(inout) :: other
+
+      if (.not. allocated(self%path)) self%path = ''
+      self%backing_store_node => other%backing_store_node
+      call settings_set_data(self)
+   end subroutine take_values
+
+   function ignore_child(self, name) result(found)
       class (type_settings), intent(inout) :: self
       character(len=*),      intent(in)    :: name
       logical                              :: found
@@ -345,49 +370,39 @@ contains
       end do
       if (associated(parent)) then
          node => parent%get(name(istart_:))
-         found = associated(node)
-         if (found) call touch(node)
+         if (associated(node)) then
+            found = .true.
+            call node%set_accessed(.true., .true.)
+         end if
       end if
-
-   contains
-
-      recursive subroutine touch(self)
-         class (type_yaml_node), intent(inout) :: self
-
-         type (type_yaml_key_value_pair), pointer :: pair
-         type (type_yaml_list_item),      pointer :: item
-
-         select type (self)
-         class is (type_yaml_dictionary)
-            pair => self%first
-            do while (associated(pair))
-               pair%accessed = .true.
-               call touch(pair%value)
-               pair => pair%next
-            end do
-         class is (type_yaml_list)
-            item => self%first
-            do while (associated(item))
-               call touch(item%node)
-               item => item%next
-            end do
-         end select
-      end subroutine
-
    end function
 
-   logical function check_all_used(self)
-      class (type_settings), intent(inout) :: self
+   logical function ignore_node(self)
+      class (type_value), intent(inout) :: self
+      if (associated(self%backing_store_node)) &
+         call self%backing_store_node%set_accessed(.true., .true.)
+      ignore_node = .true.
+   end function
 
+   logical function check_all_used(self, finalize_store)
+      class (type_settings), intent(inout) :: self
+      logical, optional,     intent(in)    :: finalize_store
+
+      logical :: finalize_store_
       integer :: n
 
+      finalize_store_ = .true.
+      if (present(finalize_store)) finalize_store_ = finalize_store
       n = 0
       if (associated(self%backing_store_node)) then
          if (self%backing_store_node%path /= '') &
             call report_error('BUG: check_all_used can only be called on settings initialized by load')
          call node_check(self%backing_store_node, n)
-         call self%backing_store_node%finalize()
-         deallocate(self%backing_store_node)
+         if (finalize_store_) then
+            call self%backing_store_node%finalize()
+            deallocate(self%backing_store_node)
+            self%backing_store => null()
+         end if
       end if
       check_all_used = n == 0
 
@@ -540,7 +555,7 @@ contains
          allocate(type_value::pair%value)
          pair%value%parent => self
          pair%value%path = self%path//'/'//name
-         if (associated(self%backing_store)) pair%value%backing_store_node  => self%backing_store%get(name)
+         if (associated(self%backing_store)) pair%value%backing_store_node  => self%backing_store%get(key, case_sensitive=.false.)
       end if
 
       pair%name = name
@@ -556,7 +571,7 @@ contains
       end subroutine
    end function get_node
 
-   function get_real(self, name, long_name, units, default, minimum, maximum, description, display) result(value)
+   function get_real(self, name, long_name, units, default, minimum, maximum, scale_factor, description, display) result(value)
       class (type_settings),           intent(inout) :: self
       real(rk), target                               :: target
       character(len=*),                intent(in)    :: name
@@ -565,6 +580,7 @@ contains
       real(rk),        optional,       intent(in)    :: default
       real(rk),        optional,       intent(in)    :: minimum
       real(rk),        optional,       intent(in)    :: maximum
+      real(rk),        optional,       intent(in)    :: scale_factor
       character(len=*),optional,       intent(in)    :: description
       integer,         optional,       intent(in)    :: display
       real(rk) :: value
@@ -572,13 +588,13 @@ contains
       class (type_real_setting),   pointer :: setting
       class (type_key_value_pair), pointer :: pair
 
-      pair => self%get_node(name)      
+      pair => self%get_node(name)
       setting => type_real_setting_create(pair, long_name, units, &
-         default, minimum, maximum, description, display=display)
+         default, minimum, maximum, scale_factor, description, display=display)
       value = setting%pvalue
    end function get_real
 
-   subroutine get_real2(self, target, name, long_name, units, default, minimum, maximum, description, display)
+   subroutine get_real2(self, target, name, long_name, units, default, minimum, maximum, scale_factor, description, display)
       class (type_settings),intent(inout) :: self
       real(rk), target                               :: target
       character(len=*),                intent(in)    :: name
@@ -587,6 +603,7 @@ contains
       real(rk),        optional,       intent(in)    :: default
       real(rk),        optional,       intent(in)    :: minimum
       real(rk),        optional,       intent(in)    :: maximum
+      real(rk),        optional,       intent(in)    :: scale_factor
       character(len=*),optional,       intent(in)    :: description
       integer,         optional,       intent(in)    :: display
 
@@ -595,28 +612,33 @@ contains
 
       pair => self%get_node(name)      
       setting => type_real_setting_create(pair, long_name, units, &
-                                          default, minimum, maximum, description, target=target, display=display)
+         default, minimum, maximum, scale_factor, description, target=target, display=display)
    end subroutine
 
-   function type_real_setting_create(node, long_name, units, &
-                                     default, minimum, maximum, description, target, display) result(setting)
+   function type_real_setting_create(node, long_name, units, default, minimum, maximum, scale_factor, &
+      description, target, display) result(setting)
       class (type_settings_node),      intent(inout) :: node
       character(len=*),                intent(in)    :: long_name
       character(len=*),                intent(in)    :: units
       real(rk),        optional,       intent(in)    :: default
       real(rk),        optional,       intent(in)    :: minimum
       real(rk),        optional,       intent(in)    :: maximum
+      real(rk),        optional,       intent(in)    :: scale_factor
       character(len=*),optional,       intent(in)    :: description
       real(rk), target, optional                     :: target
       integer,         optional,       intent(in)    :: display
       class (type_real_setting),  pointer :: setting
 
+      logical :: reuse_value
+
       select type (value => node%value)
       class is (type_real_setting)
          setting => value
+         reuse_value = .true.
       class default
          allocate(setting)
          call node%set_value(setting)
+         reuse_value = .false.
       end select
       if (present(target)) then
          setting%pvalue => target
@@ -627,6 +649,7 @@ contains
       if (units /= '') setting%units = units
       if (present(minimum)) setting%minimum = minimum
       if (present(maximum)) setting%maximum = maximum
+      if (present(scale_factor)) setting%scale_factor = scale_factor
       if (present(display)) setting%display = display
       if (present(default)) then
          if (default < setting%minimum) call report_error('Default value of setting '//setting%path// &
@@ -639,11 +662,13 @@ contains
       if (present(description)) setting%description = description
       if (associated(setting%backing_store_node)) then
          call real_set_data(setting, setting%backing_store_node)
-      elseif (setting%has_default) then
-         setting%pvalue = setting%default
-      else
-         call report_error('No value specified for setting '//setting%path//'; cannot continue because&
-            & this parameter does not have a default value either.')
+      elseif (.not. reuse_value) then
+         if (setting%has_default) then
+            setting%pvalue = setting%default * setting%scale_factor
+         else
+            call report_error('No value specified for setting '//setting%path//'; cannot continue because&
+               & this parameter does not have a default value either.')
+         end if
       end if
    end function type_real_setting_create
 
@@ -665,6 +690,7 @@ contains
          ' lies below prescribed minimum.')
       if (self%pvalue > self%maximum) call report_error('Value specified for parameter '//self%path// &
          ' exceeds prescribed maximum.')
+       self%pvalue = self%pvalue * self%scale_factor
    end subroutine
 
    function get_integer(self, name, long_name, units, default, minimum, maximum, options, description, display) result(value)
@@ -722,17 +748,20 @@ contains
       character(len=*),  optional, intent(in)    :: description
       integer, target,   optional                :: target
       integer,           optional, intent(in)    :: display
-      class (type_integer_setting), pointer :: setting
+      class (type_integer_setting), pointer      :: setting
 
-      integer                               :: ioption, ioption2, ivalue
-      logical                               :: found
+      logical :: reuse_value
+      integer :: ioption, ioption2, ivalue
+      logical :: found
 
       select type (value => node%value)
       class is (type_integer_setting)
          setting => value
+         reuse_value = .true.
       class default
          allocate(setting)
          call node%set_value(setting)
+         reuse_value = .false.
       end select
 
       if (present(target)) then
@@ -788,11 +817,13 @@ contains
       if (present(description)) setting%description = description
       if (associated(setting%backing_store_node)) then
          call integer_set_data(setting, setting%backing_store_node)
-      elseif (setting%has_default) then
-         setting%pvalue = setting%default
-      else
-         call report_error('No value specified for setting '//setting%path//'; cannot continue because&
-            & it does not have a default value either.')
+      elseif (.not. reuse_value) then
+         if (setting%has_default) then
+            setting%pvalue = setting%default
+         else
+            call report_error('No value specified for setting '//setting%path//'; cannot continue because&
+               & it does not have a default value either.')
+         end if
       end if
    end function type_integer_setting_create
 
@@ -909,12 +940,16 @@ contains
       integer,          optional, intent(in)    :: display
       class (type_logical_setting), pointer     :: setting
 
+      logical :: reuse_value
+
       select type (value => node%value)
       class is (type_logical_setting)
          setting => value
+         reuse_value = .true.
       class default
          allocate(setting)
          call node%set_value(setting)
+         reuse_value = .false.
       end select
       if (present(target)) then
          setting%pvalue => target
@@ -930,11 +965,13 @@ contains
       if (present(description)) setting%description = description
       if (associated(setting%backing_store_node)) then
          call logical_set_data(setting, setting%backing_store_node)
-      elseif (setting%has_default) then
-         setting%pvalue = setting%default
-      else
-         call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
-            & this parameter does not have a default value either.')
+      elseif (.not. reuse_value) then
+         if (setting%has_default) then
+            setting%pvalue = setting%default
+         else
+            call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
+               & this parameter does not have a default value either.')
+         end if
       end if
    end function type_logical_setting_create
    
@@ -1000,12 +1037,16 @@ contains
       integer,          optional,      intent(in)    :: display
       class (type_string_setting), pointer           :: setting
 
+      logical :: reuse_value
+
       select type (value => node%value)
       class is (type_string_setting)
          setting => value
+         reuse_value = .true.
       class default
          allocate(setting)
          call node%set_value(setting)
+         reuse_value = .false.
       end select
       if (present(target)) then
          setting%pvalue => target
@@ -1029,7 +1070,7 @@ contains
          class default
             call report_error(setting%path//' must be be a string or null.')
          end select
-      else
+      elseif (.not. reuse_value) then
          if (setting%has_default) then
             setting%value = setting%default
          else
@@ -1071,6 +1112,28 @@ contains
       child => type_settings_create(node, long_name, populator, display)
    end function get_child
 
+   recursive subroutine attach_child(self, child, name, long_name, treat_as_path, populator, display, order)
+      ! this function is recursive because the populator called via settings_set_data
+      ! can do anything, including call attach_child
+      class (type_settings), target,               intent(inout) :: self
+      class (type_settings), target,               intent(inout) :: child
+      character(len=*),                            intent(in)    :: name
+      character(len=*),                  optional, intent(in)    :: long_name
+      logical,                           optional, intent(in)    :: treat_as_path
+      class (type_dictionary_populator), optional, intent(inout) :: populator
+      integer,                           optional, intent(in)    :: display
+      integer,                           optional, intent(in)    :: order
+
+      class (type_settings_node), pointer :: node
+
+      node => self%get_node(name, treat_as_path=treat_as_path, order=order)
+      call node%set_value(child)
+      node%own_value = .false.
+      if (present(long_name)) child%long_name = long_name
+      if (present(display)) child%display = display
+      if (associated(child%backing_store_node)) call settings_set_data(child, populator)
+   end subroutine attach_child
+
    subroutine node_set_value(self, value)
       class (type_settings_node), intent(inout) :: self
       class (type_value), target :: value
@@ -1079,11 +1142,13 @@ contains
       if (value%display == display_inherit) value%display = value%parent%display
       call move_alloc(self%value%path, value%path)
       value%backing_store_node => self%value%backing_store_node
-      deallocate(self%value)
+      if (self%own_value) deallocate(self%value)
       self%value => value
    end subroutine
 
-   function type_settings_create(node, long_name, populator, display) result(child)
+   recursive function type_settings_create(node, long_name, populator, display) result(child)
+      ! this function is recursive because the populator called via settings_set_data
+      ! can do anything, including call type_settings_create
       class (type_settings_node),        optional, intent(inout) :: node
       character(len=*),                  optional, intent(in)    :: long_name
       class (type_dictionary_populator), optional, intent(inout) :: populator
@@ -1226,7 +1291,7 @@ contains
       do while (associated(current))
          next => current%next
          call current%value%finalize()
-         deallocate(current%value)
+         if (current%own_value) deallocate(current%value)
          deallocate(current)
          current => next
       end do
@@ -1234,27 +1299,17 @@ contains
       if (allocated(self%path)) deallocate(self%path)
    end subroutine finalize
 
-   function string_lower(string) result (lowerstring)
-       character(len=*),intent(in) :: string
-       character(len=len(string))  :: lowerstring
-
-       integer                     :: i,k
-
-       lowerstring = string
-       do i = 1,len(string)
-           k = iachar(string(i:i))
-           if (k>=iachar('A').and.k<=iachar('Z')) then
-               k = k + iachar('a') - iachar('A')
-               lowerstring(i:i) = achar(k)
-           end if
-       end do
-   end function string_lower
-
    subroutine report_error(message)
+      character(len=*), intent(in) :: message
+      if (.not. associated(error_reporter)) error_reporter => default_error_reporter
+      call error_reporter(message)
+   end subroutine report_error
+
+   subroutine default_error_reporter(message)
       character(len=*), intent(in) :: message
       write (error_unit,'(a)') trim(message)
       stop 1
-   end subroutine report_error
+   end subroutine default_error_reporter
 
    recursive subroutine settings_write_yaml(self, unit, indent, comment_depth, header, display)
       class (type_settings), intent(in) :: self
@@ -1500,7 +1555,7 @@ contains
       if (use_default) then
          string = format_real(self%default)
       else
-         string = format_real(self%pvalue)
+         string = format_real(self%pvalue / self%scale_factor)
       end if
    end function real_as_string
 
@@ -1642,7 +1697,7 @@ contains
 
    logical function real_at_default(self)
       class (type_real_setting), intent(in) :: self
-      real_at_default = self%pvalue == self%default
+      real_at_default = self%pvalue == self%default * self%scale_factor
    end function
 
    logical function logical_at_default(self)

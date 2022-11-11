@@ -22,7 +22,7 @@ module yaml
 
    private
 
-   public parse,error_length
+   public parse, error_length
 
    integer,parameter :: line_length  = 2048
    integer,parameter :: error_length = 2048
@@ -42,7 +42,7 @@ module yaml
 
 contains
 
-   function parse(path,unit,error) result(root)
+   function parse(path, unit, error) result(root)
       integer,                intent(in)  :: unit
       character(len=*),       intent(in)  :: path
       character(error_length),intent(out) :: error
