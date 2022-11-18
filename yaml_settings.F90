@@ -12,11 +12,11 @@ module yaml_settings
 
    private
 
-   public type_settings, type_option, option, report_error, type_settings_create, type_header, type_scalar_value
+   public type_settings, type_option, option, type_settings_create, type_header, type_scalar_value
    public type_dictionary_populator, type_list_populator, type_settings_node, type_key_value_pair, type_list_item
    public type_real_setting, type_logical_setting, type_integer_setting, type_string_setting
    public type_real_setting_create, type_logical_setting_create, type_integer_setting_create, type_string_setting_create
-   public format_real, format_integer, error_reporter
+   public format_real, format_integer, error_reporter_proc, default_minimum_real, default_maximum_real
 
    integer, parameter :: rk = yaml_real_kind
 
@@ -34,11 +34,18 @@ module yaml_settings
    integer, parameter, public :: display_advanced = 2
    integer, parameter, public :: display_hidden  = 3
 
+   interface
+      subroutine error_reporter_proc(message)
+         character(len=*), intent(in) :: message
+      end subroutine
+   end interface
+
    type type_value
       character(len=:), allocatable   :: long_name
       character(len=:), allocatable   :: description
       class (type_yaml_node), pointer :: backing_store_node => null()
       character(len=:), allocatable   :: path
+      procedure(error_reporter_proc), pointer, nopass :: error_reporter => null()
       class (type_value), pointer     :: parent => null()
       integer                         :: display = display_inherit
    contains
@@ -51,6 +58,8 @@ module yaml_settings
       procedure :: ignore_node
       generic :: ignore => ignore_node
       procedure :: finalize          => value_finalize
+      procedure :: report_error
+      procedure :: dummy => report_error   ! workaround for nvfortran/aocc (likely PGI) bug
    end type type_value
 
    type type_settings_node
@@ -130,6 +139,7 @@ module yaml_settings
       procedure :: ignore_child
       generic :: ignore => ignore_child
       procedure :: finalize
+      procedure :: finalize_store
    end type type_settings
 
    type, abstract, extends(type_value) :: type_scalar_value
@@ -236,13 +246,6 @@ module yaml_settings
       procedure :: append => header_append
    end type
 
-   interface
-      subroutine error_reporter_proc(message)
-         character(len=*), intent(in) :: message   
-      end subroutine
-   end interface
-   procedure(error_reporter_proc), pointer, save :: error_reporter => null()
-
 contains
 
    type (type_option) function option(value, long_name, key)
@@ -283,7 +286,7 @@ contains
       class (type_value), intent(in) :: self
       integer,            intent(in) :: display
       logical                        :: visible
-      visible = display >= self%display
+      visible = display >= get_display(self)
    end function
 
    integer function value_get_yaml_style(self, display)
@@ -320,16 +323,18 @@ contains
       if (.not. associated(self%first)) list_get_yaml_style = -2
    end function
 
-   subroutine load(self, path, unit)
+   subroutine load(self, path, unit, error_reporter)
       class (type_settings), intent(inout) :: self
       character(len=*),      intent(in)    :: path
       integer,               intent(in)    :: unit
+      procedure(error_reporter_proc), optional :: error_reporter
 
-      class (type_yaml_node),pointer   :: root
+      class (type_yaml_node), pointer  :: root
       character(len=yaml_error_length) :: error
 
+      if (present(error_reporter)) self%error_reporter => error_reporter
       root => yaml_parse(path, unit, error)
-      if (error /= '') call report_error(error)
+      if (error /= '') call self%report_error(trim(error))
       if (.not. allocated(self%path)) self%path = ''
       self%backing_store_node => root
       call settings_set_data(self)
@@ -340,7 +345,10 @@ contains
       class (type_settings), intent(inout) :: other
 
       if (.not. allocated(self%path)) self%path = ''
+      self%error_reporter => other%error_reporter
       self%backing_store_node => other%backing_store_node
+      other%backing_store_node => null()
+      other%backing_store => null()
       call settings_set_data(self)
    end subroutine take_values
 
@@ -396,14 +404,10 @@ contains
       n = 0
       if (associated(self%backing_store_node)) then
          if (self%backing_store_node%path /= '') &
-            call report_error('BUG: check_all_used can only be called on settings initialized by load')
+            call self%report_error('BUG: check_all_used can only be called on settings initialized by load')
          call node_check(self%backing_store_node, n)
-         if (finalize_store_) then
-            call self%backing_store_node%finalize()
-            deallocate(self%backing_store_node)
-            self%backing_store => null()
-         end if
       end if
+      if (finalize_store_) call self%finalize_store()
       check_all_used = n == 0
 
    contains
@@ -452,7 +456,7 @@ contains
       integer                   :: comment_depth
 
       open(unit=unit, file=path, action='write', encoding='UTF-8', status='replace', iostat=ios)
-      if (ios /= 0) call report_error('Failed to open '//path//' for writing.')
+      if (ios /= 0) call self%report_error('Failed to open '//path//' for writing.')
 
       if (present(header)) then
          line => header%first_line
@@ -478,7 +482,7 @@ contains
       type (type_key_value_pair),pointer :: pair
 
       open(unit=unit, file=path, action='write', status='replace', iostat=ios)
-      if (ios /= 0) call report_error('Failed to open '//path//' for writing.')
+      if (ios /= 0) call self%report_error('Failed to open '//path//' for writing.')
       write (unit,'(a)') '<?xml version="1.0" ?>'
       write (unit,'(a,a,a)') '<element name="scenario" label="scenario" version="', version, '" namelistextension=".nml"&
          & xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../core/scenario-1.0.xsd">'
@@ -503,8 +507,6 @@ contains
       logical                        :: treat_as_path_
       integer                        :: islash
       integer                        :: order_
-
-      if (self%display == display_inherit) self%display = display_normal
 
       istart_ = 1
       settings => self
@@ -573,7 +575,6 @@ contains
 
    function get_real(self, name, long_name, units, default, minimum, maximum, scale_factor, description, display) result(value)
       class (type_settings),           intent(inout) :: self
-      real(rk), target                               :: target
       character(len=*),                intent(in)    :: name
       character(len=*),                intent(in)    :: long_name
       character(len=*),                intent(in)    :: units
@@ -652,9 +653,9 @@ contains
       if (present(scale_factor)) setting%scale_factor = scale_factor
       if (present(display)) setting%display = display
       if (present(default)) then
-         if (default < setting%minimum) call report_error('Default value of setting '//setting%path// &
+         if (default < setting%minimum) call setting%report_error('Default value of setting '//setting%path// &
             ' lies below prescribed minimum.')
-         if (default > setting%maximum) call report_error('Default value of setting '//setting%path// &
+         if (default > setting%maximum) call setting%report_error('Default value of setting '//setting%path// &
             ' exceeds prescribed maximum.')
          setting%has_default = .true.
          setting%default = default
@@ -666,7 +667,7 @@ contains
          if (setting%has_default) then
             setting%pvalue = setting%default * setting%scale_factor
          else
-            call report_error('No value specified for setting '//setting%path//'; cannot continue because&
+            call setting%report_error('No value specified for setting '//setting%path//'; cannot continue because&
                & this parameter does not have a default value either.')
          end if
       end if
@@ -681,14 +682,14 @@ contains
       select type (backing_store_node)
       class is (type_yaml_scalar)
          self%pvalue = backing_store_node%to_real(self%pvalue, success)
-         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+         if (.not. success) call self%report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
             '", which cannot be interpreted as a real number.')
       class default
-         call report_error('Setting '//self%path//' must be a real number.')
+         call self%report_error('Setting '//self%path//' must be a real number.')
       end select
-      if (self%pvalue < self%minimum) call report_error('Value specified for parameter '//self%path// &
+      if (self%pvalue < self%minimum) call self%report_error('Value specified for parameter '//self%path// &
          ' lies below prescribed minimum.')
-      if (self%pvalue > self%maximum) call report_error('Value specified for parameter '//self%path// &
+      if (self%pvalue > self%maximum) call self%report_error('Value specified for parameter '//self%path// &
          ' exceeds prescribed maximum.')
        self%pvalue = self%pvalue * self%scale_factor
    end subroutine
@@ -777,7 +778,7 @@ contains
       if (present(options)) then
          do ioption = 1, size(options)
             do ioption2 = ioption + 1, size(options)
-               if (options(ioption)%value == options(ioption2)%value) call report_error( &
+               if (options(ioption)%value == options(ioption2)%value) call setting%report_error( &
                   'Setting '//setting%path//' has multiple options with the same integer value.')
             end do
          end do
@@ -799,16 +800,16 @@ contains
          end do
       end if
       if (present(default)) then
-         if (default < setting%minimum) call report_error('Default value of setting '//setting%path// &
+         if (default < setting%minimum) call setting%report_error('Default value of setting '//setting%path// &
             ' lies below prescribed minimum.')
-         if (default > setting%maximum) call report_error('Default value of setting '//setting%path// &
+         if (default > setting%maximum) call setting%report_error('Default value of setting '//setting%path// &
             ' exceeds prescribed maximum.')
          if (allocated(setting%options)) then
             found = .false.
             do ioption = 1, size(setting%options)
                if (default == setting%options(ioption)%value) found = .true.
             end do
-            if (.not.found) call report_error('Default value of setting '//setting%path// &
+            if (.not.found) call setting%report_error('Default value of setting '//setting%path// &
                ' does not correspond to any known option.')
          end if
          setting%has_default = .true.
@@ -821,7 +822,7 @@ contains
          if (setting%has_default) then
             setting%pvalue = setting%default
          else
-            call report_error('No value specified for setting '//setting%path//'; cannot continue because&
+            call setting%report_error('No value specified for setting '//setting%path//'; cannot continue because&
                & it does not have a default value either.')
          end if
       end if
@@ -873,26 +874,26 @@ contains
                      stroptions = stroptions // achar(10) // '- ' // trim(strtmp) // ' = ' // self%options(ioption)%long_name
                   end if
                end do
-               call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+               call self%report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
                   '", which is not one of the valid options:' // stroptions)
             else
-               call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+               call self%report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
                   '", which cannot be interpreted as an integer number.')
             end if
          end if
       class default
-         call report_error('Setting '//self%path//' must be an integer number.')
+         call self%report_error('Setting '//self%path//' must be an integer number.')
       end select
-      if (self%pvalue < self%minimum) call report_error('Value specified for setting '//self%path// &
+      if (self%pvalue < self%minimum) call self%report_error('Value specified for setting '//self%path// &
          ' lies below prescribed minimum.')
-      if (self%pvalue > self%maximum) call report_error('Value specified for setting '//self%path// &
+      if (self%pvalue > self%maximum) call self%report_error('Value specified for setting '//self%path// &
          ' exceeds prescribed maximum.')
       if (allocated(self%options)) then
          success = .false.
          do ioption = 1, size(self%options)
             if (self%pvalue == self%options(ioption)%value) success = .true.
          end do
-         if (.not. success) call report_error('Value specified for setting '//self%path// &
+         if (.not. success) call self%report_error('Value specified for setting '//self%path// &
             ' does not correspond to any known option.')
       end if
    end subroutine integer_set_data
@@ -969,7 +970,7 @@ contains
          if (setting%has_default) then
             setting%pvalue = setting%default
          else
-            call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
+            call setting%report_error('No value specified for parameter '//setting%path//'; cannot continue because&
                & this parameter does not have a default value either.')
          end if
       end if
@@ -984,10 +985,10 @@ contains
       select type (backing_store_node)
       class is (type_yaml_scalar)
          self%pvalue = backing_store_node%to_logical(self%pvalue, success)
-         if (.not. success) call report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
+         if (.not. success) call self%report_error(self%path//' is set to "'//trim(backing_store_node%string)// &
             '", which cannot be interpreted as logical value (true or false).')
       class default
-         call report_error('Setting '//self%path//' must be set to a logical value (true or false).')
+         call self%report_error('Setting '//self%path//' must be set to a logical value (true or false).')
       end select
    end subroutine
 
@@ -1068,13 +1069,13 @@ contains
          class is (type_yaml_scalar)
             setting%value = trim(yaml_node%string)
          class default
-            call report_error(setting%path//' must be be a string or null.')
+            call setting%report_error(setting%path//' must be be a string or null.')
          end select
       elseif (.not. reuse_value) then
          if (setting%has_default) then
             setting%value = setting%default
          else
-            call report_error('No value specified for parameter '//setting%path//'; cannot continue because&
+            call setting%report_error('No value specified for parameter '//setting%path//'; cannot continue because&
                & this parameter does not have a default value either.')
          end if
       end if
@@ -1139,7 +1140,6 @@ contains
       class (type_value), target :: value
 
       value%parent => self%value%parent
-      if (value%display == display_inherit) value%display = value%parent%display
       call move_alloc(self%value%path, value%path)
       value%backing_store_node => self%value%backing_store_node
       if (self%own_value) deallocate(self%value)
@@ -1195,18 +1195,18 @@ contains
       select type (backing_store_node => self%backing_store_node)
       class is (type_yaml_dictionary)
          self%backing_store => backing_store_node
-         yaml_pair => self%backing_store%first
-         do while (associated(yaml_pair))
-            if (present(populator)) then
+         if (present(populator)) then
+            yaml_pair => self%backing_store%first
+            do while (associated(yaml_pair))
                pair => self%get_node(trim(yaml_pair%key), treat_as_path=.false.)
                call populator%create(pair)
                pair%from_populator = .true.
-            end if
-            yaml_pair => yaml_pair%next
-         end do
+               yaml_pair => yaml_pair%next
+            end do
+         end if
       class is (type_yaml_null)
       class default
-         call report_error(self%path//' should be a dictionary')
+         call self%report_error(self%path//' should be a dictionary')
       end select 
    end subroutine
 
@@ -1278,14 +1278,14 @@ contains
          end do
       class is (type_yaml_null)
       class default
-         call report_error(self%path//' should be a list')
+         call self%report_error(self%path//' should be a list')
       end select 
    end subroutine
 
    recursive subroutine finalize(self)
-      class (type_settings),intent(inout) :: self
+      class (type_settings), intent(inout) :: self
 
-      type (type_key_value_pair),pointer :: current, next
+      type (type_key_value_pair), pointer :: current, next
 
       current => self%first
       do while (associated(current))
@@ -1299,8 +1299,29 @@ contains
       if (allocated(self%path)) deallocate(self%path)
    end subroutine finalize
 
-   subroutine report_error(message)
-      character(len=*), intent(in) :: message
+   subroutine finalize_store(self)
+      class (type_settings), intent(inout) :: self
+
+      if (associated(self%backing_store_node)) then
+         call self%backing_store_node%finalize()
+         deallocate(self%backing_store_node)
+         self%backing_store => null()
+      end if
+   end subroutine
+
+   subroutine report_error(self, message)
+      class (type_value), target, intent(in) :: self
+      character(len=*),           intent(in) :: message
+
+      procedure(error_reporter_proc), pointer :: error_reporter
+      class (type_value),             pointer :: current
+
+      error_reporter => self%error_reporter
+      current => self
+      do while (associated(current%parent) .and. .not. associated(error_reporter))
+         current => current%parent
+         error_reporter => current%error_reporter
+      end do
       if (.not. associated(error_reporter)) error_reporter => default_error_reporter
       call error_reporter(message)
    end subroutine report_error
@@ -1463,7 +1484,7 @@ contains
             call append_string(comment, '; ', 'dimensionless')
          elseif (self%units == '1') then
             call append_string(comment, '; ', 'fraction')
-         else
+         elseif (self%units /= '') then
             call append_string(comment, '; ', self%units)
          end if
       end if
@@ -1492,10 +1513,24 @@ contains
       integer,                   intent(in) :: display
       logical                               :: visible
       visible = .true.
-      if (display >= self%display) return
+      if (display >= get_display(self)) return
       if (.not. self%has_default) return
       if (.not. self%at_default()) return
       visible = .false.
+   end function
+
+   recursive integer function get_display(self)
+      class (type_value), target, intent(in) :: self
+
+      class (type_value), pointer :: current
+
+      current => self
+      get_display = self%display
+      do while (get_display == display_inherit .and. associated(current%parent))
+         current => current%parent
+         get_display = current%display
+      end do
+      if (get_display == display_inherit) get_display = display_normal
    end function
 
    recursive function settings_get_maximum_depth(self, name, display) result(maxdepth)
@@ -1523,7 +1558,7 @@ contains
       type (type_key_value_pair), pointer :: pair
 
       visible = .true.
-      if (display >= self%display) return
+      if (display >= get_display(self)) return
       pair => self%first
       do while (associated(pair))
          if (pair%from_populator .or. pair%value%is_visible(display)) return
@@ -1802,7 +1837,7 @@ contains
       class (type_list), intent(in) :: self
       integer,           intent(in) :: display
       logical                       :: visible
-      visible = display >= self%display .or. associated(self%first)
+      visible = display >= get_display(self) .or. associated(self%first)
    end function
 
    recursive subroutine list_finalize(self)
