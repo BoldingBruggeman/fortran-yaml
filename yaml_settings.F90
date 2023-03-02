@@ -1264,7 +1264,7 @@ contains
             write (strindex,'(i0)') i
             allocate(item)
             allocate(type_value::item%value)
-            item%value%path = self%path//'['//strindex//']'
+            item%value%path = self%path//'['//trim(strindex)//']'
             item%value%backing_store_node => yaml_item%node
             item%value%parent => self
             if (.not. associated(last_item)) then
