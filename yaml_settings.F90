@@ -279,6 +279,7 @@ contains
       character(len=*),   intent(in) :: name
       integer,            intent(in) :: display
       integer                        :: maxdepth
+      maxdepth = -1
       stop 'value_get_maximum_depth not overridden'
    end function
 
