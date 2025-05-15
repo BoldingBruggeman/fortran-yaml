@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.10)
 
 # Create main project.
 project(yaml VERSION 0.1.0 LANGUAGES Fortran)
