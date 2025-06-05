@@ -33,4 +33,5 @@ install(TARGETS yaml
         ARCHIVE DESTINATION lib
 )
 
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/modules/\${BUILD_TYPE}/ DESTINATION include)
 install(EXPORT yamlConfig DESTINATION cmake)
